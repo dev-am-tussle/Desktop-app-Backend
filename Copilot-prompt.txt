@@ -1,0 +1,271 @@
+TASK TITLE: Implement Dynamic Stripe Checkout + Subscription System (Full Backend Integration)
+📌 Objective
+
+Cloud backend me Stripe integration implement karna jisme:
+
+Admin plans dynamically create/update/delete kar sake
+
+Backend automatically Stripe Product & Price generate kare
+
+User electron/desktop app se plan choose kare → backend Stripe Checkout session create kare
+
+Stripe webhook payment/renewal/cancel events handle kare
+
+Backend subscription activate/update/cancel kare
+
+Desktop app ko clean API responses mile for payment status
+
+All security requirements (signature verification, safe price mapping, etc.) follow ho
+
+-----------------------------------------
+🟦 1. Database Structure (Required)
+-----------------------------------------
+plans table
+id (uuid)
+name
+description
+base_price
+currency (default: INR)
+billing_period ("month" or "year")
+stripe_product_id
+stripe_price_id
+is_active (bool)
+features (json)
+created_at
+updated_at
+
+users table update
+
+Add fields:
+
+stripe_customer_id
+current_plan_id
+subscription_active (bool)
+subscription_valid_until
+stripe_subscription_id
+
+payment_sessions table
+id (uuid)
+user_id
+plan_id
+stripe_session_id
+stripe_customer_id
+status ("pending" | "completed" | "failed")
+created_at
+updated_at
+
+---------------------------------------------------
+🟧 2. Admin Creates/Updates Plan — Backend Logic
+---------------------------------------------------
+API: POST /admin/plans/create
+
+Steps:
+
+Validate plan input
+
+Create Stripe Product:
+
+stripe.products.create({
+  name: data.name,
+  description: data.description
+})
+
+
+Create Stripe Price:
+
+stripe.prices.create({
+  unit_amount: data.base_price * 100,
+  currency: data.currency,
+  recurring: { interval: data.billing_period },
+  product: product.id
+})
+
+
+Store plan in DB
+
+Save product + price ID
+
+Store features array
+
+PRICE UPDATE RULE
+
+Stripe prices immutable hote hain.
+If admin updates price → new Stripe Price create, old price archive.
+
+---------------------------------------------------
+🟦 3. Create Checkout Session API (Desktop App Use)
+---------------------------------------------------
+API: POST /payments/create-checkout-session
+
+INPUT:
+
+{
+  "user_id": "uuid",
+  "plan_id": "uuid"
+}
+
+
+LOGIC:
+
+Fetch user + plan
+
+If user has no stripe_customer_id →
+create Stripe customer
+
+Create checkout session:
+
+const session = await stripe.checkout.sessions.create({
+  mode: plan.billing_period ? "subscription" : "payment",
+  customer: user.stripe_customer_id,
+  line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
+  success_url: "myapp://payment-success?session_id={CHECKOUT_SESSION_ID}",
+  cancel_url:  "myapp://payment-cancel?session_id={CHECKOUT_SESSION_ID}",
+  metadata: {
+    userId: user.id,
+    planId: plan.id
+  }
+});
+
+
+Save stripe_session_id in payment_sessions
+
+Response:
+
+{ "checkout_url": session.url }
+
+---------------------------------------------------
+🟩 4. Stripe Webhook Endpoint (MOST IMPORTANT)
+---------------------------------------------------
+API: POST /payments/webhook
+
+Verify Signature:
+Use:
+
+stripe.webhooks.constructEvent
+
+EVENT HANDLERS:
+A) checkout.session.completed
+
+Steps:
+
+Extract metadata:
+
+userId = session.metadata.userId
+planId = session.metadata.planId
+
+
+Fetch user + plan
+
+Get subscription_id (if subscription mode)
+
+Update user table:
+
+subscription_active = true
+current_plan_id = planId
+subscription_valid_until = now + plan.billing_period
+stripe_subscription_id = <if exists>
+stripe_customer_id = session.customer
+
+
+Update payment_sessions:
+
+status = "completed"
+
+B) invoice.payment_succeeded
+
+(Subscription renewal)
+
+Extend subscription_valid_until
+
+Mark payment history record
+
+C) payment_intent.payment_failed
+
+Mark session as failed
+
+Optionally send email
+
+Keep subscription_active=false
+
+D) customer.subscription.updated
+
+Check:
+
+Paused
+
+Resumed
+
+Canceled
+
+Update DB.
+
+E) customer.subscription.deleted
+
+Mark user subscription inactive.
+
+---------------------------------------------------
+🟩 5. Desktop App — Subscription Status API
+---------------------------------------------------
+API: GET /user/subscription-status?user_id=UUID
+
+Response:
+
+{
+  "active": user.subscription_active,
+  "plan": <plan info>,
+  "valid_till": user.subscription_valid_until,
+  "stripe_customer_id": user.stripe_customer_id
+}
+
+
+Used after redirect:
+
+Desktop app verifies purchase
+
+Unlocks features
+
+---------------------------------------------------
+🟧 6. Security Requirements
+---------------------------------------------------
+Must Implement
+
+✔ Validate webhook signature
+✔ Allow plans from DB only (not client input)
+✔ Never accept price or amount from client
+✔ Always verify session on success redirect
+✔ API must be behind authentication
+
+---------------------------------------------------
+🟦 7. Test Instructions
+---------------------------------------------------
+Test Cards:
+
+4242 4242 4242 4242
+
+UPI test IDs
+
+Wallet test numbers
+
+Test Webhook Locally:
+stripe listen --forward-to http://localhost:3000/payments/webhook
+
+---------------------------------------------------
+🟩 8. Required Outputs Deliverables
+
+Backend must deliver:
+
+Admin Plan APIs (create, update, delete, list)
+
+Dynamic Stripe product & price creation
+
+Checkout session API
+
+Webhook endpoint
+
+Subscription activation logic
+
+Payment Session table
+
+Desktop-ready subscription status API
+
+Documentation of all endpoints
