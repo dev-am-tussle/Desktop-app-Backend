@@ -57,6 +57,7 @@ export const createUser = async (req: Request, res: Response, next: NextFunction
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
+    console.log(existingUser);
     if (existingUser) {
       throw new AppError('User with this email already exists', 400, 'USER_EXISTS');
     }
@@ -253,7 +254,8 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
     const { name, email, password } = req.body;
 
     // Check if user already exists
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    const existingUser = await User.findOne({ email });
+    // console.log(existingUser);
     if (existingUser) {
       throw new AppError('Email already registered', 409, 'EMAIL_EXISTS');
     }
