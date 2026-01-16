@@ -53,6 +53,18 @@ export abstract class BaseProviderAdapter {
     ): Promise<ChatCompletionResponse>;
 
     /**
+     * Send a streaming chat completion request
+     */
+    abstract streamChatCompletion(
+        model: string,
+        messages: ChatMessage[],
+        options?: {
+            temperature?: number;
+            maxTokens?: number;
+        }
+    ): AsyncGenerator<any, void, unknown>;
+
+    /**
      * Normalize provider-specific response to standard format
      * @param response - Raw provider response
      * @returns Normalized chat completion response

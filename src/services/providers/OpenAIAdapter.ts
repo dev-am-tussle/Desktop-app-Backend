@@ -126,6 +126,68 @@ export class OpenAIAdapter extends BaseProviderAdapter {
     /**
      * Normalize OpenAI response to standard format
      */
+
+    /**
+     * Stream chat completion from OpenAI
+     */
+    async * streamChatCompletion(
+        model: string,
+        messages: ChatMessage[],
+        options?: {
+            temperature?: number;
+            maxTokens?: number;
+        }
+    ): AsyncGenerator<any, void, unknown> {
+        try {
+            const response = await axios.post(
+                `${this.baseURL}/chat/completions`,
+                {
+                    model,
+                    messages,
+                    temperature: options?.temperature ?? 0.7,
+                    max_tokens: options?.maxTokens,
+                    stream: true,
+                },
+                {
+                    headers: {
+                        Authorization: `Bearer ${this.apiKey}`,
+                        'Content-Type': 'application/json',
+                    },
+                    responseType: 'stream',
+                }
+            );
+
+            const stream = response.data;
+
+            // Simple line-based parser
+            for await (const chunk of stream) {
+                const lines = chunk.toString().split('\n');
+                for (const line of lines) {
+                    if (line.trim() === '') continue;
+                    if (line.includes('[DONE]')) return;
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            const delta = data.choices[0]?.delta?.content;
+                            const finishReason = data.choices[0]?.finish_reason;
+                            const usage = data.usage; // OpenAI often sends usage in the last chunk or separate field
+
+                            if (delta) yield { delta };
+                            if (finishReason) yield { finishReason, usage };
+                        } catch (e) {
+                            // Ignored parse error on partial chunks (rudimentary handling)
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            this.handleError(error);
+        }
+    }
+
+    /**
+     * Normalize OpenAI response to standard format
+     */
     protected normalizeResponse(response: any): ChatCompletionResponse {
         const choice = response.choices[0];
 

@@ -148,6 +148,21 @@ export class PerplexityAdapter extends BaseProviderAdapter {
     }
 
     /**
+     * Stream chat completion (not implemented for Compare Mode)
+     * Compare Mode uses sendChatCompletion instead
+     */
+    async *streamChatCompletion(
+        _model: string,
+        _messages: ChatMessage[],
+        _options?: {
+            temperature?: number;
+            maxTokens?: number;
+        }
+    ): AsyncGenerator<any, void, unknown> {
+        throw new Error('Streaming not implemented for Perplexity adapter in Compare Mode');
+    }
+
+    /**
      * Normalize Perplexity response to standard format
      */
     protected normalizeResponse(response: any): ChatCompletionResponse {
