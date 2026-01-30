@@ -5,6 +5,8 @@ import {
   getSubscriptionPlan,
   createSubscriptionPlan,
   updateSubscriptionPlan,
+  archiveSubscriptionPlan,
+  unarchiveSubscriptionPlan,
   deleteSubscriptionPlan,
   getSubscriptions,
   getSubscription,
@@ -68,8 +70,35 @@ router.put(
 );
 
 /**
+ * DELETE /subscriptions/plans/:id/archive
+ * Archive subscription plan (soft delete - recommended)
+ * Admin only
+ */
+router.delete(
+  '/plans/:id/archive',
+  writeLimiter,
+  authenticateToken,
+  requireRole(['admin']),
+  archiveSubscriptionPlan
+);
+
+/**
+ * PUT /subscriptions/plans/:id/unarchive
+ * Unarchive subscription plan (reactivate)
+ * Admin only
+ */
+router.put(
+  '/plans/:id/unarchive',
+  writeLimiter,
+  authenticateToken,
+  requireRole(['admin']),
+  unarchiveSubscriptionPlan
+);
+
+/**
  * DELETE /subscriptions/plans/:id
- * Archive subscription plan (admin only)
+ * Permanently delete subscription plan (only if no active subscriptions)
+ * Admin only
  */
 router.delete(
   '/plans/:id',

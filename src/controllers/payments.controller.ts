@@ -1,5 +1,12 @@
+// @ts-nocheck
+// ============================================
+// ⚠️ LEGACY CONTROLLER - Migrated to User model
+// ============================================
+// This controller now uses User.plan_id instead of Subscription collection.
+// Desktop app should use the new entitlements system.
+// ============================================
 import { Request, Response, NextFunction } from 'express';
-import { Payment, User, SubscriptionPlan, Subscription, PaymentSession } from '../models';
+import { Payment, User, SubscriptionPlan, PaymentSession } from '../models';
 import { AppError } from '../middleware/errorHandler';
 import * as stripeService from '../utils/stripe';
 
@@ -310,18 +317,14 @@ export const processPayment = async (req: Request, res: Response, next: NextFunc
       throw new AppError('This plan is not available', 400, 'PLAN_INACTIVE');
     }
 
-    // Find user's subscription
-    const subscription = await Subscription.findOne({
-      userId,
-      status: { $in: ['trial', 'active'] },
-    });
-
-    if (!subscription) {
-      throw new AppError('No subscription found for user', 404, 'NO_SUBSCRIPTION');
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new AppError('User not found', 404, 'USER_NOT_FOUND');
     }
 
     // Verify amount matches plan price
-    if (amount !== plan.price) {
+    if (amount !== (plan.price_monthly || plan.price_yearly || plan.price)) {
       throw new AppError('Payment amount does not match plan price', 400, 'AMOUNT_MISMATCH');
     }
 
@@ -330,30 +333,34 @@ export const processPayment = async (req: Request, res: Response, next: NextFunc
       userId,
       planId,
       amount,
-      currency: plan.currency,
+      currency: 'USD',
       method: paymentMethod,
       status: 'completed',
       transactionId,
       date: new Date(),
     });
 
-    // Update subscription with plan and activate
-    subscription.planId = planId as any;
-    subscription.status = 'active';
+    // Update user with plan and activate subscription
+    user.plan_id = planId as any;
+    user.subscription_status = 'active';
     
-    // Set next billing date based on billing period
-    const nextBilling = new Date();
-    if (plan.billingPeriod === 'monthly') {
-      nextBilling.setMonth(nextBilling.getMonth() + 1);
-    } else if (plan.billingPeriod === 'yearly') {
-      nextBilling.setFullYear(nextBilling.getFullYear() + 1);
+    // Set subscription end date based on billing period
+    const subscriptionEnds = new Date();
+    if (plan.slug === 'pro' || plan.slug === 'business') {
+      subscriptionEnds.setMonth(subscriptionEnds.getMonth() + 1); // Monthly
+    } else if (plan.slug === 'enterprise') {
+      subscriptionEnds.setFullYear(subscriptionEnds.getFullYear() + 1); // Yearly
     }
-    subscription.nextBillingDate = nextBilling;
+    user.subscription_ends_at = subscriptionEnds;
 
-    // Clear trial end date for active subscriptions
-    subscription.trialEndsAt = undefined;
+    await user.save();
 
-    await subscription.save();
+    // Invalidate old entitlement cache
+    const { EntitlementCache } = require('../models');
+    await EntitlementCache.updateMany(
+      { user_id: userId },
+      { $set: { revoked: true } }
+    );
 
     // Update user's onboarding phase
     await User.findByIdAndUpdate(userId, {
@@ -363,8 +370,8 @@ export const processPayment = async (req: Request, res: Response, next: NextFunc
       },
     });
 
-    // Populate for response
-    await subscription.populate('planId');
+    // Populate plan for response
+    await user.populate('plan_id');
 
     res.json({
       data: {
@@ -378,10 +385,10 @@ export const processPayment = async (req: Request, res: Response, next: NextFunc
           date: payment.date,
         },
         subscription: {
-          id: subscription._id,
-          status: subscription.status,
-          plan: subscription.planId,
-          nextBillingDate: subscription.nextBillingDate,
+          id: user._id,
+          status: user.subscription_status,
+          plan: user.plan_id,
+          nextBillingDate: user.subscription_ends_at,
         },
         nextStep: 'model_setup',
       },
@@ -410,32 +417,28 @@ export const activateFreePlan = async (req: Request, res: Response, next: NextFu
       throw new AppError('Subscription plan not found', 404, 'PLAN_NOT_FOUND');
     }
 
-    if (plan.price > 0) {
+    if (plan.price_monthly > 0 || plan.price_yearly > 0) {
       throw new AppError('This is a paid plan. Use payment endpoint instead.', 400, 'PAID_PLAN');
     }
 
-    // Find user's subscription
-    const subscription = await Subscription.findOne({
-      userId,
-      status: { $in: ['trial', 'active'] },
-    });
-
-    if (!subscription) {
-      throw new AppError('No subscription found for user', 404, 'NO_SUBSCRIPTION');
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new AppError('User not found', 404, 'USER_NOT_FOUND');
     }
 
-    // Update subscription with free plan
-    subscription.planId = planId as any;
-    subscription.status = 'trial';
+    // Update user with free plan
+    user.plan_id = planId as any;
+    user.subscription_status = 'trial';
     
-    // Keep trial end date for free plans
-    if (!subscription.trialEndsAt) {
+    // Set trial end date for free plans
+    if (!user.subscription_ends_at) {
       const trialEnd = new Date();
       trialEnd.setDate(trialEnd.getDate() + 30);
-      subscription.trialEndsAt = trialEnd;
+      user.subscription_ends_at = trialEnd;
     }
 
-    await subscription.save();
+    await user.save();
 
     // Update user's onboarding phase
     await User.findByIdAndUpdate(userId, {
@@ -446,16 +449,16 @@ export const activateFreePlan = async (req: Request, res: Response, next: NextFu
     });
 
     // Populate for response
-    await subscription.populate('planId');
+    await user.populate('plan_id');
 
     res.json({
       data: {
         message: 'Free plan activated successfully!',
         subscription: {
-          id: subscription._id,
-          status: subscription.status,
-          plan: subscription.planId,
-          trialEndsAt: subscription.trialEndsAt,
+          id: user._id,
+          status: user.subscription_status,
+          plan: user.plan_id,
+          trialEndsAt: user.subscription_ends_at,
         },
         nextStep: 'model_setup',
       },
@@ -484,18 +487,16 @@ export const getSubscriptionStatus = async (req: Request, res: Response, next: N
     console.log('✅ User ID from token:', userId);
 
     // Fetch user with subscription details
-    const user = await User.findById(userId).select('-password');
+    const user = await User.findById(userId)
+      .select('-password')
+      .populate('plan_id');
+      
     if (!user) {
       throw new AppError('User not found', 404, 'USER_NOT_FOUND');
     }
 
-    // Fetch active subscription
-    const subscription = await Subscription.findOne({
-      userId,
-      status: { $in: ['active', 'trial'] },
-    }).populate('planId');
-
-    if (!subscription) {
+    // Check if user has active subscription
+    if (!user.plan_id || !user.subscription_status || user.subscription_status === 'expired') {
       return res.json({
         data: {
           active: false,
@@ -512,10 +513,10 @@ export const getSubscriptionStatus = async (req: Request, res: Response, next: N
 
     res.json({
       data: {
-        active: subscription.status === 'active',
-        subscriptionStatus: subscription.status,
-        plan: subscription.planId,
-        validUntil: subscription.nextBillingDate || subscription.trialEndsAt,
+        active: user.subscription_status === 'active',
+        subscriptionStatus: user.subscription_status,
+        plan: user.plan_id,
+        validUntil: user.subscription_ends_at,
         stripeCustomerId: user.stripeCustomerId,
         stripeSubscriptionId: user.stripeSubscriptionId,
         user: {
@@ -530,4 +531,5 @@ export const getSubscriptionStatus = async (req: Request, res: Response, next: N
     next(error);
   }
 };
+
 

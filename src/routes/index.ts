@@ -16,6 +16,7 @@ import auditLogsRoutes from './auditLogs.routes';
 import paymentsRoutes from './payments.routes';
 import providersRoutes from './providers.routes';
 import chatRoutes from './chat.routes';
+import entitlementsRoutes from './entitlements.routes';
 // Note: webhookRoutes mounted separately in server.ts before JSON parser
 
 const router = Router();
@@ -45,5 +46,6 @@ router.use('/public', publicRoutes); // Public desktop app routes
 router.use('/dashboard', dashboardRoutes); // Dashboard analytics routes
 router.use('/providers', providersRoutes); // External API provider routes
 router.use('/chat', chatRoutes); // Chat completion routes
+router.use('/entitlements', entitlementsRoutes); // Entitlements management routes
 
 export default router;

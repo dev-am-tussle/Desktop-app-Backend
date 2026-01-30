@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { User, Subscription, PaymentSession, Payment } from '../models';
+import { User, PaymentSession, Payment, SubscriptionPlan, EntitlementCache } from '../models';
 import * as stripeService from '../utils/stripe';
 import Stripe from 'stripe';
 
@@ -94,34 +94,26 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
       }
     );
 
-    // Get user and subscription
-    const [user, subscription] = await Promise.all([
+    // Get user and plan
+    const [user, plan] = await Promise.all([
       User.findById(userId),
-      Subscription.findOne({ userId, status: { $in: ['trial', 'active'] } }),
+      SubscriptionPlan.findById(planId),
     ]);
 
-    if (!user || !subscription) {
-      console.error('❌ User or subscription not found');
+    if (!user || !plan) {
+      console.error('❌ User or plan not found');
       return;
     }
 
     // Update user with Stripe customer and subscription IDs
     user.stripeCustomerId = session.customer as string;
+    user.plan_id = planId as any;
+    user.subscription_status = 'active';
     
     if (session.subscription) {
       user.stripeSubscriptionId = session.subscription as string;
-    }
-    
-    await user.save();
-
-    // Activate subscription
-    subscription.planId = planId as any;
-    subscription.status = 'active';
-    
-    if (session.subscription) {
-      subscription.stripeSubscriptionId = session.subscription as string;
       
-      // Set next billing date from Stripe subscription
+      // Set subscription end date from Stripe subscription
       try {
         const stripeSubscription = await stripeService.getStripeSubscription(
           session.subscription as string
@@ -130,30 +122,35 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
         // Access current_period_end safely
         const periodEnd = (stripeSubscription as any).current_period_end;
         if (periodEnd && typeof periodEnd === 'number') {
-          subscription.nextBillingDate = new Date(periodEnd * 1000);
+          user.subscription_ends_at = new Date(periodEnd * 1000);
         } else {
           // Fallback: Set to 30 days from now
           const fallbackDate = new Date();
           fallbackDate.setDate(fallbackDate.getDate() + 30);
-          subscription.nextBillingDate = fallbackDate;
-          console.log('⚠️ Using fallback billing date (30 days from now)');
+          user.subscription_ends_at = fallbackDate;
+          console.log('⚠️ Using fallback subscription end date (30 days from now)');
         }
       } catch (err) {
         console.error('⚠️ Error fetching Stripe subscription:', err);
         // Fallback: Set to 30 days from now
         const fallbackDate = new Date();
         fallbackDate.setDate(fallbackDate.getDate() + 30);
-        subscription.nextBillingDate = fallbackDate;
+        user.subscription_ends_at = fallbackDate;
       }
     } else {
-      // One-time payment - set billing date to 30 days
+      // One-time payment - set end date to 30 days
       const fallbackDate = new Date();
       fallbackDate.setDate(fallbackDate.getDate() + 30);
-      subscription.nextBillingDate = fallbackDate;
+      user.subscription_ends_at = fallbackDate;
     }
-
-    subscription.trialEndsAt = undefined;
-    await subscription.save();
+    
+    await user.save();
+    
+    // Invalidate old entitlement cache (user upgraded)
+    await EntitlementCache.updateMany(
+      { user_id: userId },
+      { $set: { revoked: true } }
+    );
 
     // Create payment record
     await Payment.create({
@@ -198,20 +195,26 @@ async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
 
     if (!userId) return;
 
-    // Update subscription next billing date
+    // Update user subscription end date
     const periodEnd = (stripeSubscription as any).current_period_end;
-    const nextBilling = periodEnd && typeof periodEnd === 'number' 
+    const subscriptionEnds = periodEnd && typeof periodEnd === 'number' 
       ? new Date(periodEnd * 1000) 
       : new Date(Date.now() + 30*24*60*60*1000); // Fallback: 30 days
 
-    await Subscription.findOneAndUpdate(
-      { userId, stripeSubscriptionId: subscriptionId },
+    await User.findOneAndUpdate(
+      { _id: userId, stripeSubscriptionId: subscriptionId },
       {
         $set: {
-          status: 'active',
-          nextBillingDate: nextBilling,
+          subscription_status: 'active',
+          subscription_ends_at: subscriptionEnds,
         },
       }
+    );
+    
+    // Invalidate old cache on renewal
+    await EntitlementCache.updateMany(
+      { user_id: userId },
+      { $set: { revoked: true } }
     );
 
     // Create payment record for renewal
@@ -268,30 +271,36 @@ async function handleSubscriptionUpdated(stripeSubscription: Stripe.Subscription
     if (!userId) return;
 
     // Map Stripe status to our status
-    let status: 'active' | 'paused' | 'cancelled' | 'trial' = 'active';
+    let status: 'active' | 'past_due' | 'cancelled' | 'trial' | 'expired' = 'active';
     
     if (stripeSubscription.status === 'canceled') {
       status = 'cancelled';
-    } else if (stripeSubscription.status === 'paused') {
-      status = 'paused';
+    } else if (stripeSubscription.status === 'past_due') {
+      status = 'past_due';
     } else if (stripeSubscription.status === 'trialing') {
       status = 'trial';
     }
 
-    // Update subscription
+    // Update user subscription status
     const periodEnd = (stripeSubscription as any).current_period_end;
-    const nextBilling = periodEnd && typeof periodEnd === 'number'
+    const subscriptionEnds = periodEnd && typeof periodEnd === 'number'
       ? new Date(periodEnd * 1000)
       : new Date(Date.now() + 30*24*60*60*1000); // Fallback: 30 days
 
-    await Subscription.findOneAndUpdate(
-      { userId, stripeSubscriptionId: stripeSubscription.id },
+    await User.findOneAndUpdate(
+      { _id: userId, stripeSubscriptionId: stripeSubscription.id },
       {
         $set: {
-          status,
-          nextBillingDate: nextBilling,
+          subscription_status: status,
+          subscription_ends_at: subscriptionEnds,
         },
       }
+    );
+    
+    // Invalidate cache on status change
+    await EntitlementCache.updateMany(
+      { user_id: userId },
+      { $set: { revoked: true } }
     );
 
     console.log('✅ Subscription updated for user:', userId);
@@ -311,16 +320,19 @@ async function handleSubscriptionDeleted(stripeSubscription: Stripe.Subscription
     const userId = stripeSubscription.metadata?.userId;
     if (!userId) return;
 
-    // Mark subscription as cancelled
-    await Subscription.findOneAndUpdate(
-      { userId, stripeSubscriptionId: stripeSubscription.id },
-      { $set: { status: 'cancelled' } }
-    );
-
-    // Clear user's Stripe subscription ID
+    // Mark user subscription as cancelled and clear Stripe ID
     await User.findByIdAndUpdate(userId, {
-      $set: { stripeSubscriptionId: null },
+      $set: { 
+        subscription_status: 'cancelled',
+        stripeSubscriptionId: null,
+      },
     });
+    
+    // Invalidate entitlement cache
+    await EntitlementCache.updateMany(
+      { user_id: userId },
+      { $set: { revoked: true } }
+    );
 
     console.log('✅ Subscription cancelled for user:', userId);
   } catch (error) {

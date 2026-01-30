@@ -6,16 +6,22 @@ export interface IUser extends Document {
   name: string;
   email: string;
   password: string;
-  avatar?: string;
   role: 'user';
   status: 'active' | 'disabled' | 'pending';
   lastSeen?: Date;
   tags?: string[];
-  preferences?: Record<string, any>;
+  // Subscription Management (NEW - moved from Subscription model)
+  plan_id?: mongoose.Types.ObjectId;
+  subscription_status: 'trial' | 'active' | 'past_due' | 'cancelled' | 'expired';
+  subscription_ends_at?: Date;       // Billing cycle end
+  grace_period_until?: Date;         // Payment failure grace period
   
   // Stripe Integration Fields
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
+  
+  // Offline Entitlement Cache
+  last_entitlement_sync?: Date;
   
   // Desktop Application Onboarding Phase Tracking
   onboardingPhase: 'account_created' | 'plan_selection' | 'payment_processing' | 'model_setup' | 'completed';
@@ -57,10 +63,6 @@ const UserSchema: Schema<IUser> = new Schema(
       minlength: [8, 'Password must be at least 8 characters'],
       select: false, // Don't include password by default in queries
     },
-    avatar: {
-      type: String,
-      default: null,
-    },
     role: {
       type: String,
       enum: ['user', 'admin', 'support'],
@@ -79,9 +81,32 @@ const UserSchema: Schema<IUser> = new Schema(
       type: [String],
       default: [],
     },
-    preferences: {
-      type: Schema.Types.Mixed,
-      default: {},
+    // Subscription Management (NEW)
+    plan_id: {
+      type: Schema.Types.ObjectId,
+      ref: 'SubscriptionPlan',
+      default: null,
+      index: true,
+    },
+    subscription_status: {
+      type: String,
+      enum: ['trial', 'active', 'past_due', 'cancelled', 'expired'],
+      default: 'trial',
+      index: true,
+    },
+    subscription_ends_at: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    grace_period_until: {
+      type: Date,
+      default: null,
+    },
+    // Offline Entitlement Cache
+    last_entitlement_sync: {
+      type: Date,
+      default: null,
     },
     // Desktop Application Onboarding Phase Tracking
     onboardingPhase: {
@@ -138,6 +163,8 @@ const UserSchema: Schema<IUser> = new Schema(
 UserSchema.index({ role: 1, status: 1 });
 UserSchema.index({ onboardingPhase: 1 });
 UserSchema.index({ lastActivePhase: 1 });
+UserSchema.index({ plan_id: 1, subscription_status: 1 });
+// Note: subscription_ends_at index already defined inline
 
 // Hash password before saving
 UserSchema.pre('save', async function (this: HydratedDocument<IUser>, next: CallbackWithoutResultAndOptionalError) {
@@ -159,11 +186,34 @@ UserSchema.methods.comparePassword = async function (
   return bcrypt.compare(candidatePassword, this.password);
 };
 
-// Virtual for active subscription
-UserSchema.virtual('activeSubscription', {
+// Virtual for current plan details
+UserSchema.virtual('currentPlan', {
+  ref: 'SubscriptionPlan',
+  localField: 'plan_id',
+  foreignField: '_id',
+  justOne: true,
+});
+
+// Virtual for subscription history (old Subscription model - deprecated)
+UserSchema.virtual('subscriptionHistory', {
   ref: 'Subscription',
   localField: '_id',
   foreignField: 'userId',
+});
+
+// Virtual for entitlement overrides
+UserSchema.virtual('entitlementOverrides', {
+  ref: 'UserEntitlementOverride',
+  localField: '_id',
+  foreignField: 'user_id',
+});
+
+// Virtual for entitlement cache
+UserSchema.virtual('cachedEntitlements', {
+  ref: 'EntitlementCache',
+  localField: '_id',
+  foreignField: 'user_id',
+  options: { sort: { issued_at: -1 }, limit: 1 }, // Latest snapshot
   justOne: true,
   match: { status: { $in: ['active', 'trial'] } },
 });

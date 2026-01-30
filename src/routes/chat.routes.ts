@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { body } from 'express-validator';
 import { sendChatCompletion, handleCompareRequest } from '../controllers/chat.controller';
 import { getSupportedProviders } from '../config/providers.config';
+import { authenticateToken } from '../middleware/auth';
+import { requireCapability } from '../middleware/entitlements';
 
 // ============================================
 // CHAT ROUTES
@@ -16,6 +18,7 @@ const supportedProviders = getSupportedProviders();
  */
 router.post(
     '/completions',
+    authenticateToken,
     [
         body('provider')
             .notEmpty()
@@ -66,9 +69,12 @@ router.post(
 /**
  * POST /api/chat/compare
  * Handle Compare Mode request (multi-model comparison)
+ * Requires compare_mode capability
  */
 router.post(
     '/compare',
+    authenticateToken,
+    requireCapability('features.compare_mode'),
     [
         body('requestId')
             .notEmpty()

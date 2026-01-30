@@ -25,11 +25,9 @@ const question = (query: string): Promise<string> => {
 const connectDB = async () => {
   try {
     // Check multiple possible environment variable names
-    const mongoURI = process.env.MONGODB_URI || 
-                     process.env.AZURE_COSMOS_CONNECTIONSTRING || 
-                     'mongodb://localhost:27017/sovereign-ai';
+    const mongoURI = process.env.AZURE_COSMOS_CONNECTIONSTRING || 'mongodb://localhost:27017/sovereign-ai';
     
-    if (!mongoURI || mongoURI === 'mongodb://localhost:27017/sovereign-ai') {
+    if (!process.env.AZURE_COSMOS_CONNECTIONSTRING || mongoURI === 'mongodb://localhost:27017/sovereign-ai') {
       console.log('⚠️  Using local MongoDB connection');
       console.log('💡 Add MONGODB_URI or AZURE_COSMOS_CONNECTIONSTRING to .env for production\n');
     }

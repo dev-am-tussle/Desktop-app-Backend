@@ -1,8 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
-import { User, InstalledModel, ApiKey, License, Payment, Conversation, Subscription } from '../models';
+import { User, InstalledModel, ApiKey, License, Payment, Conversation } from '../models';
+import SubscriptionPlan from '../models/SubscriptionPlan.model';
 import { AppError } from '../middleware/errorHandler';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import entitlementsService from '../services/entitlements.service';
 
 export const getUsers = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -124,7 +126,7 @@ export const getUserById = async (req: Request, res: Response, next: NextFunctio
 export const updateUser = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { name, email, role, status, tags, preferences } = req.body;
+    const { name, email, role, status, tags } = req.body;
 
     // Build update object
     const updateFields: any = {};
@@ -133,7 +135,6 @@ export const updateUser = async (req: Request, res: Response, next: NextFunction
     if (role !== undefined) updateFields.role = role;
     if (status !== undefined) updateFields.status = status;
     if (tags !== undefined) updateFields.tags = tags;
-    if (preferences !== undefined) updateFields.preferences = preferences;
 
     if (Object.keys(updateFields).length === 0) {
       throw new AppError('No fields to update', 400, 'NO_UPDATES');
@@ -255,18 +256,30 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
-    // console.log(existingUser);
     if (existingUser) {
       throw new AppError('Email already registered', 409, 'EMAIL_EXISTS');
     }
 
-    // Create new user with trial status
+    // Get Free Plan ID
+    const freePlan = await SubscriptionPlan.findOne({ name: 'free', status: 'active' });
+    if (!freePlan) {
+      throw new AppError('Free plan not found. Please contact support.', 500, 'FREE_PLAN_NOT_FOUND');
+    }
+
+    // Calculate trial end date (30 days)
+    const trialEnd = new Date();
+    trialEnd.setDate(trialEnd.getDate() + 30);
+
+    // Create new user with trial status and Free plan
     const user = new User({
       name,
       email: email.toLowerCase(),
       password, // Will be hashed by pre-save hook
       role: 'user',
       status: 'active',
+      plan_id: freePlan._id,
+      subscription_status: 'trial',
+      subscription_ends_at: trialEnd,
       onboardingPhase: 'account_created',
       tags: ['new-user'],
       preferences: {
@@ -277,16 +290,14 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
 
     await user.save();
 
-    // Create trial subscription (30 days)
-    const trialEnd = new Date();
-    trialEnd.setDate(trialEnd.getDate() + 30);
-    
-    await Subscription.create({
-      userId: user._id,
-      planId: null, // No plan selected yet
-      status: 'trial',
-      trialEndsAt: trialEnd,
-    });
+    // Generate entitlement snapshot for new user
+    let entitlementSnapshot = null;
+    try {
+      entitlementSnapshot = await entitlementsService.resolveUserEntitlements(user._id);
+    } catch (error: any) {
+      console.warn('Failed to generate entitlement snapshot during registration:', error.message);
+      // Continue without entitlements - user can sync later
+    }
 
     // Calculate session expiry (30 days for trial)
     const sessionExpiryDays = 30;
@@ -324,7 +335,9 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
           email: user.email,
           role: user.role,
           status: user.status,
-          subscriptionStatus: 'trial',
+          subscriptionStatus: user.subscription_status,
+          planId: user.plan_id,
+          trialEndsAt: user.subscription_ends_at,
           createdAt: user.createdAt,
         },
         authentication: {
@@ -334,6 +347,17 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
           sessionDuration: `${sessionExpiryDays} days`,
           message: 'Use sessionToken for offline app authentication',
         },
+        entitlements: entitlementSnapshot ? {
+          capabilities: entitlementSnapshot.entitlements.capabilities,
+          limits: entitlementSnapshot.entitlements.limits,
+          resources: entitlementSnapshot.entitlements.resources,
+          deployment: entitlementSnapshot.entitlements.deployment,
+          support: entitlementSnapshot.entitlements.support,
+          issued_at: entitlementSnapshot.issued_at,
+          valid_until: entitlementSnapshot.valid_until,
+          offline_allowed: entitlementSnapshot.offline_allowed,
+          signature: entitlementSnapshot.signature,
+        } : null,
         nextSteps: {
           step1: 'Download Gemma model (default)',
           step2: 'Choose subscription plan or continue with trial',
@@ -376,32 +400,27 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
     user.lastSeen = new Date();
     await user.save();
 
-    // Get subscription status with plan details
-    const subscription = await Subscription.findOne({
-      userId: user._id,
-      status: { $in: ['active', 'trial', 'cancelled', 'paused'] },
-    }).populate('planId').lean();
-
-    const subscriptionStatus = subscription ? subscription.status : 'none';
-
-    // Get plan details if subscription has a plan
+    // Get plan details from user.plan_id
     let planDetails = null;
-    if (subscription && subscription.planId) {
-      const plan = subscription.planId as any;
-      planDetails = {
-        id: plan._id || plan.id,
-        name: plan.name,
-        description: plan.description,
-        price: plan.price,
-        currency: plan.currency,
-        billingPeriod: plan.billingPeriod,
-        features: plan.features || [],
-        seats: plan.seats,
-        maxModels: plan.maxModels,
-        offlineModelSizeLimit: plan.offlineModelSizeLimit,
-        status: plan.status,
-      };
+    if (user.plan_id) {
+      const plan = await SubscriptionPlan.findById(user.plan_id).lean();
+      if (plan) {
+        planDetails = {
+          id: plan._id,
+          name: plan.name,
+          display_name: plan.display_name,
+          slug: plan.slug,
+          description: plan.description,
+          price_monthly: plan.price_monthly,
+          price_yearly: plan.price_yearly,
+          currency: plan.currency,
+          is_contact_sales: plan.is_contact_sales,
+          status: plan.status,
+        };
+      }
     }
+
+    const subscriptionStatus = user.subscription_status || 'none';
 
     // Determine session duration based on subscription status
     let sessionExpiryDays = 30; // Default for trial
@@ -437,6 +456,15 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
       { expiresIn: '90d' }
     );
 
+    // Generate entitlement snapshot
+    let entitlementSnapshot = null;
+    try {
+      entitlementSnapshot = await entitlementsService.resolveUserEntitlements(user._id);
+    } catch (error: any) {
+      console.warn('Failed to generate entitlement snapshot:', error.message);
+      // Continue without entitlements if service fails
+    }
+
     res.json({
       data: {
         user: {
@@ -446,16 +474,15 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
           role: user.role,
           status: user.status,
           lastSeen: user.lastSeen,
-          preferences: user.preferences,
           tags: user.tags || [],
           onboardingPhase: user.onboardingPhase,
           createdAt: user.createdAt,
         },
         subscription: {
           status: subscriptionStatus,
-          nextBillingDate: subscription?.nextBillingDate || null,
-          trialEndsAt: subscription?.trialEndsAt || null,
-          stripeSubscriptionId: subscription?.stripeSubscriptionId || null,
+          subscription_ends_at: user.subscription_ends_at || null,
+          grace_period_until: user.grace_period_until || null,
+          stripeSubscriptionId: user.stripeSubscriptionId || null,
           plan: planDetails,
         },
         authentication: {
@@ -465,6 +492,17 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
           sessionDuration: `${sessionExpiryDays} days`,
           message: 'Use sessionToken for offline app authentication',
         },
+        entitlements: entitlementSnapshot ? {
+          capabilities: entitlementSnapshot.entitlements.capabilities,
+          limits: entitlementSnapshot.entitlements.limits,
+          resources: entitlementSnapshot.entitlements.resources,
+          deployment: entitlementSnapshot.entitlements.deployment,
+          support: entitlementSnapshot.entitlements.support,
+          issued_at: entitlementSnapshot.issued_at,
+          valid_until: entitlementSnapshot.valid_until,
+          offline_allowed: entitlementSnapshot.offline_allowed,
+          signature: entitlementSnapshot.signature,
+        } : null,
       },
     });
   } catch (error) {
@@ -506,12 +544,8 @@ export const refreshSession = async (req: Request, res: Response, next: NextFunc
     user.lastSeen = new Date();
     await user.save();
 
-    // Get subscription status
-    const subscription = await Subscription.findOne({
-      userId: user._id,
-      status: { $in: ['active', 'trial'] },
-    });
-    const subscriptionStatus = subscription ? subscription.status : 'none';
+    // Get subscription status from user
+    const subscriptionStatus = user.subscription_status || 'none';
 
     // Generate new session token
     let sessionExpiryDays = 30;
@@ -519,6 +553,8 @@ export const refreshSession = async (req: Request, res: Response, next: NextFunc
       sessionExpiryDays = 90;
     } else if (subscriptionStatus === 'cancelled') {
       sessionExpiryDays = 7;
+    } else if (subscriptionStatus === 'expired') {
+      sessionExpiryDays = 1;
     }
 
     const sessionExpiresAt = new Date();
@@ -570,12 +606,8 @@ export const verifySession = async (req: Request, res: Response, next: NextFunct
       throw new AppError('Account has been disabled', 403, 'ACCOUNT_DISABLED');
     }
 
-    // Get subscription status
-    const subscription = await Subscription.findOne({
-      userId: user._id,
-      status: { $in: ['active', 'trial'] },
-    });
-    const subscriptionStatus = subscription ? subscription.status : 'none';
+    // Get subscription status from user
+    const subscriptionStatus = user.subscription_status || 'none';
 
     // Calculate remaining session time
     const tokenExp = req.user?.exp || 0;

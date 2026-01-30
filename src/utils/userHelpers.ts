@@ -1,16 +1,13 @@
-import { User, Subscription } from '../models';
+import { User } from '../models';
 import { Types } from 'mongoose';
 
 /**
- * Get user's subscription status from Subscription collection
+ * Get user's subscription status from User model
  */
 export async function getUserSubscriptionStatus(userId: string | Types.ObjectId) {
-  const subscription = await Subscription.findOne({
-    userId,
-    status: { $in: ['active', 'trial'] },
-  }).populate('planId');
+  const user = await User.findById(userId).populate('plan_id');
 
-  if (!subscription) {
+  if (!user || !user.subscription_status || user.subscription_status === 'expired') {
     return {
       subscriptionStatus: 'none' as const,
       isFreeTrial: false,
@@ -19,10 +16,10 @@ export async function getUserSubscriptionStatus(userId: string | Types.ObjectId)
   }
 
   return {
-    subscriptionStatus: subscription.status as 'active' | 'trial',
-    isFreeTrial: subscription.status === 'trial',
-    hasActiveSubscription: true,
-    subscription,
+    subscriptionStatus: user.subscription_status as 'active' | 'trial',
+    isFreeTrial: user.subscription_status === 'trial',
+    hasActiveSubscription: user.subscription_status === 'active' || user.subscription_status === 'trial',
+    plan: user.plan_id,
   };
 }
 
@@ -38,7 +35,7 @@ export async function canUserDownloadModels(userId: string | Types.ObjectId) {
  * Get complete user profile with subscription details
  */
 export async function getUserProfile(userId: string | Types.ObjectId) {
-  const user = await User.findById(userId);
+  const user = await User.findById(userId).populate('plan_id');
   if (!user) return null;
 
   const subscriptionData = await getUserSubscriptionStatus(userId);

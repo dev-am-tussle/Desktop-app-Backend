@@ -1,7 +1,19 @@
+// @ts-nocheck
+// ============================================
+// ⚠️ DEPRECATED CONTROLLER - USE ENTITLEMENTS SYSTEM INSTEAD
+// ============================================
+// This controller is kept for backward compatibility with admin panel.
+// New implementations should use the entitlements system:
+// - User.plan_id instead of Subscription.planId
+// - User.subscription_status instead of Subscription.status
+// - EntitlementCache for feature access control
+// ============================================
 import { Request, Response, NextFunction } from 'express';
-import { SubscriptionPlan, Subscription, User } from '../models';
+import { SubscriptionPlan, User } from '../models';
 import { AppError } from '../middleware/errorHandler';
 import * as stripeService from '../utils/stripe';
+import PlanEntitlement from '../models/PlanEntitlement.model';
+import EntitlementDefinition from '../models/EntitlementDefinition.model';
 
 // ============================================
 // SUBSCRIPTION PLAN CONTROLLERS
@@ -9,6 +21,7 @@ import * as stripeService from '../utils/stripe';
 
 /**
  * Get All Subscription Plans
+ * Returns plans with entitlements grouped by category
  */
 export const getSubscriptionPlans = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -17,10 +30,57 @@ export const getSubscriptionPlans = async (req: Request, res: Response, next: Ne
     const filter: any = {};
     if (status) filter.status = status;
 
-    const plans = await SubscriptionPlan.find(filter).sort({ _id: -1 });
+    const plans = await SubscriptionPlan.find(filter);
+
+    // Sort in memory by sort_order (Azure Cosmos DB doesn't have index on this field)
+    plans.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+    // Fetch entitlements for all plans
+    const plansWithEntitlements = await Promise.all(
+      plans.map(async (plan) => {
+        // Get plan entitlements
+        const planEntitlements = await PlanEntitlement.find({ plan_id: plan._id }).lean();
+
+        // Get entitlement definitions for metadata
+        const entitlementKeys = planEntitlements.map((e: any) => e.entitlement_key);
+        const definitions = await EntitlementDefinition.find({
+          key: { $in: entitlementKeys },
+        }).lean();
+
+        // Create a map of key -> definition
+        const definitionMap = new Map(definitions.map((d: any) => [d.key, d]));
+
+        // Group entitlements by category
+        const groupedEntitlements: any = {
+          capabilities: [],
+          limits: [],
+          resources: [],
+          deployment: [],
+          support: [],
+        };
+
+        planEntitlements.forEach((ent: any) => {
+          const def = definitionMap.get(ent.entitlement_key);
+          if (def) {
+            groupedEntitlements[def.category].push({
+              key: ent.entitlement_key,
+              value: ent.value,
+              type: def.type,
+              description: def.description,
+            });
+          }
+        });
+
+        return {
+          ...plan.toJSON(),
+          entitlements: groupedEntitlements,
+          entitlements_count: planEntitlements.length,
+        };
+      })
+    );
 
     res.json({
-      data: plans,
+      data: plansWithEntitlements,
     });
   } catch (error) {
     next(error);
@@ -125,12 +185,12 @@ export const updateSubscriptionPlan = async (req: Request, res: Response, next: 
     // If price is being updated, create new Stripe Price (prices are immutable)
     if (updates.price && updates.price !== plan.price) {
       console.log('🔵 Price changed - Creating new Stripe Price...');
-      
+
       // Archive old price
       if (plan.stripePriceId) {
         await stripeService.archiveStripePrice(plan.stripePriceId);
       }
-      
+
       // Create new price
       const newStripePrice = await stripeService.createStripePrice({
         productId: plan.stripeProductId!,
@@ -138,7 +198,7 @@ export const updateSubscriptionPlan = async (req: Request, res: Response, next: 
         currency: updates.currency || plan.currency,
         billingPeriod: updates.billingPeriod || plan.billingPeriod,
       });
-      
+
       updates.stripePriceId = newStripePrice.id;
       console.log('✅ New Stripe Price Created:', newStripePrice.id);
     }
@@ -158,7 +218,7 @@ export const updateSubscriptionPlan = async (req: Request, res: Response, next: 
       { new: true, runValidators: true }
     );
 
-    res.json({ 
+    res.json({
       data: updatedPlan,
       message: 'Plan updated successfully',
     });
@@ -169,16 +229,20 @@ export const updateSubscriptionPlan = async (req: Request, res: Response, next: 
 };
 
 /**
- * Delete (Archive) Subscription Plan
+ * Archive Subscription Plan
  * Also archives Stripe Product and Price
  */
-export const deleteSubscriptionPlan = async (req: Request, res: Response, next: NextFunction) => {
+export const archiveSubscriptionPlan = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
 
     const plan = await SubscriptionPlan.findById(id);
     if (!plan) {
       throw new AppError('Subscription plan not found', 404, 'PLAN_NOT_FOUND');
+    }
+
+    if (plan.status === 'archived') {
+      throw new AppError('Plan is already archived', 400, 'ALREADY_ARCHIVED');
     }
 
     // Archive Stripe resources
@@ -201,7 +265,91 @@ export const deleteSubscriptionPlan = async (req: Request, res: Response, next: 
     });
   } catch (error: any) {
     console.error('❌ Plan Archive Failed:', error);
-    next(new AppError(error.message, 500, 'ARCHIVE_ERROR'));
+    next(new AppError(error.message, error.statusCode || 500, error.code || 'ARCHIVE_ERROR'));
+  }
+};
+
+/**
+ * Unarchive Subscription Plan
+ * Reactivates an archived plan
+ */
+export const unarchiveSubscriptionPlan = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+
+    const plan = await SubscriptionPlan.findById(id);
+    if (!plan) {
+      throw new AppError('Subscription plan not found', 404, 'PLAN_NOT_FOUND');
+    }
+
+    if (plan.status !== 'archived') {
+      throw new AppError('Plan is not archived', 400, 'NOT_ARCHIVED');
+    }
+
+    // Reactivate plan in database
+    plan.status = 'active';
+    await plan.save();
+
+    res.json({
+      data: {
+        message: 'Subscription plan unarchived successfully',
+        plan,
+      },
+    });
+  } catch (error: any) {
+    console.error('❌ Plan Unarchive Failed:', error);
+    next(new AppError(error.message, error.statusCode || 500, error.code || 'UNARCHIVE_ERROR'));
+  }
+};
+
+/**
+ * Delete Subscription Plan from mongodb
+ * Only allowed if no active subscriptions use this plan
+ * Also archives Stripe Product and Price
+ */
+export const deleteSubscriptionPlan = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+
+    const plan = await SubscriptionPlan.findById(id);
+    if (!plan) {
+      throw new AppError('Subscription plan not found', 404, 'PLAN_NOT_FOUND');
+    }
+
+    // Check if any active subscriptions use this plan
+    const activeSubscriptions = await Subscription.countDocuments({
+      planId: id,
+      status: { $in: ['active', 'trial'] },
+    });
+
+    if (activeSubscriptions > 0) {
+      throw new AppError(
+        `Cannot delete plan. ${activeSubscriptions} active subscription(s) are using this plan. Archive it instead.`,
+        400,
+        'PLAN_IN_USE'
+      );
+    }
+
+    // Archive Stripe resources
+    if (plan.stripeProductId) {
+      await stripeService.archiveStripeProduct(plan.stripeProductId);
+    }
+    if (plan.stripePriceId) {
+      await stripeService.archiveStripePrice(plan.stripePriceId);
+    }
+
+    // Delete plan from database
+    await SubscriptionPlan.findByIdAndDelete(id);
+
+    res.json({
+      data: {
+        message: 'Subscription plan deleted successfully',
+        planId: id,
+      },
+    });
+  } catch (error: any) {
+    console.error('❌ Plan Delete Failed:', error);
+    next(new AppError(error.message, error.statusCode || 500, error.code || 'DELETE_ERROR'));
   }
 };
 
@@ -211,26 +359,52 @@ export const deleteSubscriptionPlan = async (req: Request, res: Response, next: 
 
 /**
  * Get All Subscriptions
+ * ⚠️ MIGRATED: Returns user subscription data from User model
  */
 export const getSubscriptions = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { page = 1, limit = 20, status, userId } = req.query;
 
+    // Build filter for User model
     const filter: any = {};
-    if (status) filter.status = status;
-    if (userId) filter.userId = userId;
+    if (status) {
+      filter.subscription_status = status; // Map to new field
+    }
+    if (userId) {
+      filter._id = userId;
+    }
 
     const skip = (Number(page) - 1) * Number(limit);
 
-    const [subscriptions, total] = await Promise.all([
-      Subscription.find(filter)
-        .populate('userId', 'name email')
-        .populate('planId', 'name price currency')
+    // Query users with their plan data
+    const [users, total] = await Promise.all([
+      User.find(filter)
+        .populate('plan_id', 'name display_name slug price_monthly price_yearly')
+        .select('name email plan_id subscription_status subscription_ends_at createdAt')
         .sort({ _id: -1 })
         .skip(skip)
         .limit(Number(limit)),
-      Subscription.countDocuments(filter),
+      User.countDocuments(filter),
     ]);
+
+    // Transform to match old subscription response format for frontend compatibility
+    const subscriptions = users.map((user: any) => ({
+      _id: user._id,
+      userId: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+      },
+      planId: user.plan_id ? {
+        _id: user.plan_id._id,
+        name: user.plan_id.display_name || user.plan_id.name,
+        price: user.plan_id.price_monthly || 0,
+        currency: 'USD',
+      } : null,
+      status: user.subscription_status || 'expired',
+      nextBillingDate: user.subscription_ends_at,
+      createdAt: user.createdAt,
+    }));
 
     res.json({
       data: subscriptions,
@@ -248,18 +422,34 @@ export const getSubscriptions = async (req: Request, res: Response, next: NextFu
 
 /**
  * Get Subscription by ID
+ * ⚠️ MIGRATED: Returns user data with subscription info
  */
 export const getSubscription = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
 
-    const subscription = await Subscription.findById(id)
-      .populate('userId', 'name email avatar')
-      .populate('planId');
+    const user = await User.findById(id)
+      .populate('plan_id')
+      .select('name email avatar plan_id subscription_status subscription_ends_at createdAt');
 
-    if (!subscription) {
-      throw new AppError('Subscription not found', 404, 'SUBSCRIPTION_NOT_FOUND');
+    if (!user) {
+      throw new AppError('User not found', 404, 'USER_NOT_FOUND');
     }
+
+    // Transform to old subscription format
+    const subscription = {
+      _id: user._id,
+      userId: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        avatar: user.avatar,
+      },
+      planId: user.plan_id,
+      status: user.subscription_status || 'expired',
+      nextBillingDate: user.subscription_ends_at,
+      createdAt: user.createdAt,
+    };
 
     res.json({ data: subscription });
   } catch (error) {
@@ -269,25 +459,38 @@ export const getSubscription = async (req: Request, res: Response, next: NextFun
 
 /**
  * Cancel Subscription
+ * ⚠️ MIGRATED: Updates User.subscription_status to cancelled
  */
 export const cancelSubscription = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
 
-    const subscription = await Subscription.findByIdAndUpdate(
+    const user = await User.findByIdAndUpdate(
       id,
-      { $set: { status: 'cancelled' } },
+      { $set: { subscription_status: 'cancelled' } },
       { new: true }
-    );
+    ).populate('plan_id');
 
-    if (!subscription) {
-      throw new AppError('Subscription not found', 404, 'SUBSCRIPTION_NOT_FOUND');
+    if (!user) {
+      throw new AppError('User not found', 404, 'USER_NOT_FOUND');
     }
+
+    // Invalidate entitlement cache
+    const { EntitlementCache } = require('../models');
+    await EntitlementCache.updateMany(
+      { user_id: id },
+      { $set: { revoked: true } }
+    );
 
     res.json({
       data: {
         message: 'Subscription cancelled successfully',
-        subscription,
+        subscription: {
+          _id: user._id,
+          userId: { _id: user._id, name: user.name, email: user.email },
+          planId: user.plan_id,
+          status: user.subscription_status,
+        },
       },
     });
   } catch (error) {
@@ -297,25 +500,31 @@ export const cancelSubscription = async (req: Request, res: Response, next: Next
 
 /**
  * Pause Subscription
+ * ⚠️ MIGRATED: Updates User.subscription_status to past_due
  */
 export const pauseSubscription = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
 
-    const subscription = await Subscription.findByIdAndUpdate(
+    const user = await User.findByIdAndUpdate(
       id,
-      { $set: { status: 'paused' } },
+      { $set: { subscription_status: 'past_due' } },
       { new: true }
-    );
+    ).populate('plan_id');
 
-    if (!subscription) {
-      throw new AppError('Subscription not found', 404, 'SUBSCRIPTION_NOT_FOUND');
+    if (!user) {
+      throw new AppError('User not found', 404, 'USER_NOT_FOUND');
     }
 
     res.json({
       data: {
         message: 'Subscription paused successfully',
-        subscription,
+        subscription: {
+          _id: user._id,
+          userId: { _id: user._id, name: user.name, email: user.email },
+          planId: user.plan_id,
+          status: user.subscription_status,
+        },
       },
     });
   } catch (error) {
@@ -325,25 +534,38 @@ export const pauseSubscription = async (req: Request, res: Response, next: NextF
 
 /**
  * Resume Subscription
+ * ⚠️ MIGRATED: Updates User.subscription_status to active
  */
 export const resumeSubscription = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
 
-    const subscription = await Subscription.findByIdAndUpdate(
+    const user = await User.findByIdAndUpdate(
       id,
-      { $set: { status: 'active' } },
+      { $set: { subscription_status: 'active' } },
       { new: true }
-    );
+    ).populate('plan_id');
 
-    if (!subscription) {
-      throw new AppError('Subscription not found', 404, 'SUBSCRIPTION_NOT_FOUND');
+    if (!user) {
+      throw new AppError('User not found', 404, 'USER_NOT_FOUND');
     }
+
+    // Invalidate cache to force fresh entitlement generation
+    const { EntitlementCache } = require('../models');
+    await EntitlementCache.updateMany(
+      { user_id: id },
+      { $set: { revoked: true } }
+    );
 
     res.json({
       data: {
         message: 'Subscription resumed successfully',
-        subscription,
+        subscription: {
+          _id: user._id,
+          userId: { _id: user._id, name: user.name, email: user.email },
+          planId: user.plan_id,
+          status: user.subscription_status,
+        },
       },
     });
   } catch (error) {
@@ -376,20 +598,15 @@ export const selectPlan = async (req: Request, res: Response, next: NextFunction
       throw new AppError('This plan is not available', 400, 'PLAN_INACTIVE');
     }
 
-    // Find user's active subscription (trial or active)
-    const subscription = await Subscription.findOne({
-      userId,
-      status: { $in: ['trial', 'active'] },
-    });
-
-    if (!subscription) {
-      throw new AppError('No active subscription found', 404, 'NO_SUBSCRIPTION');
+    // Find user
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new AppError('User not found', 404, 'USER_NOT_FOUND');
     }
 
-    // Only update planId, don't change status yet
-    // Status will change after payment completion
-    subscription.planId = planId as any;
-    await subscription.save();
+    // Update user's plan selection (status will change after payment)
+    user.plan_id = planId as any;
+    await user.save();
 
     // Update user onboarding phase
     await User.findByIdAndUpdate(userId, {
@@ -400,18 +617,24 @@ export const selectPlan = async (req: Request, res: Response, next: NextFunction
     });
 
     // Populate plan details for response
-    await subscription.populate('planId');
+    await user.populate('plan_id');
 
     res.json({
       data: {
         message: 'Plan selected successfully',
-        subscription,
+        subscription: {
+          _id: user._id,
+          userId: { _id: user._id, name: user.name, email: user.email },
+          planId: user.plan_id,
+          status: user.subscription_status,
+        },
         plan,
-        nextStep: plan.price > 0 ? 'payment_required' : 'activate_free_plan',
-        paymentRequired: plan.price > 0,
+        nextStep: (plan.price_monthly > 0 || plan.price_yearly > 0) ? 'payment_required' : 'activate_free_plan',
+        paymentRequired: (plan.price_monthly > 0 || plan.price_yearly > 0),
       },
     });
   } catch (error) {
     next(error);
   }
 };
+

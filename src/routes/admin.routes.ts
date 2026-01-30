@@ -8,6 +8,11 @@ import {
   getAdminProfile,
   updateAdminProfile,
   changeAdminPassword,
+  createEntitlementDefinition,
+  getEntitlementDefinitions,
+  updateEntitlementDefinition,
+  deleteEntitlementDefinition,
+  createPlanWithEntitlements,
 } from '../controllers/admin.controller';
 import { authenticateAdminToken } from '../middleware/auth';
 import { validate } from '../middleware/validation';
@@ -102,6 +107,83 @@ router.post(
   ],
   validate,
   changeAdminPassword
+);
+
+// ============================================
+// ENTITLEMENT DEFINITIONS MANAGEMENT
+// ============================================
+
+/**
+ * POST /admin/entitlements/definitions
+ * Create new entitlement definition
+ */
+router.post(
+  '/entitlements/definitions',
+  writeLimiter,
+  authenticateAdminToken,
+  [
+    body('key').notEmpty().withMessage('Entitlement key is required'),
+    body('type').isIn(['boolean', 'number', 'string', 'array']).withMessage('Invalid type'),
+    body('category').isIn(['capabilities', 'limits', 'resources', 'deployment', 'support']).withMessage('Invalid category'),
+  ],
+  validate,
+  createEntitlementDefinition
+);
+
+/**
+ * GET /admin/entitlements/definitions
+ * Get all entitlement definitions (with optional filters)
+ */
+router.get(
+  '/entitlements/definitions',
+  readLimiter,
+  authenticateAdminToken,
+  getEntitlementDefinitions
+);
+
+/**
+ * PUT /admin/entitlements/definitions/:id
+ * Update entitlement definition
+ */
+router.put(
+  '/entitlements/definitions/:id',
+  writeLimiter,
+  authenticateAdminToken,
+  updateEntitlementDefinition
+);
+
+/**
+ * DELETE /admin/entitlements/definitions/:id
+ * Delete entitlement definition
+ */
+router.delete(
+  '/entitlements/definitions/:id',
+  writeLimiter,
+  authenticateAdminToken,
+  deleteEntitlementDefinition
+);
+
+// ============================================
+// PLAN MANAGEMENT WITH ENTITLEMENTS
+// ============================================
+
+/**
+ * POST /admin/plans/create-with-entitlements
+ * Create subscription plan with entitlements in one request
+ */
+router.post(
+  '/plans/create-with-entitlements',
+  writeLimiter,
+  authenticateAdminToken,
+  [
+    body('plan').notEmpty().withMessage('Plan object is required'),
+    body('plan.name').notEmpty().withMessage('Plan name is required'),
+    body('plan.display_name').notEmpty().withMessage('Plan display name is required'),
+    body('plan.slug').notEmpty().withMessage('Plan slug is required'),
+    body('entitlements').isArray().withMessage('Entitlements must be an array'),
+  ],
+  validate,
+  createPlanWithEntitlements
 );
 
 export default router;

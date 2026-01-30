@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { User, Subscription, Payment, InstalledModel } from '../models';
+import { User, Payment, InstalledModel } from '../models';
 
 // ============================================
 // DASHBOARD CONTROLLERS
@@ -26,9 +26,9 @@ export const getDashboardStats = async (_req: Request, res: Response, next: Next
       ? ((totalUsers - lastMonthUsers) / lastMonthUsers) * 100 
       : 0;
 
-    // Get active subscriptions
-    const activeSubscriptions = await Subscription.countDocuments({
-      status: 'active'
+    // Get active subscriptions (users with active or trial subscription_status)
+    const activeSubscriptions = await User.countDocuments({
+      subscription_status: { $in: ['active', 'trial'] }
     });
 
     // Get revenue this month
@@ -107,12 +107,14 @@ export const getRecentActivity = async (_req: Request, res: Response, next: Next
       .limit(5)
       .select('name email createdAt');
 
-    // Get recent subscriptions (last 5)
-    const recentSubscriptions = await Subscription.find()
+    // Get recent plan upgrades (users with active/trial status, last 5)
+    const recentPlanUpgrades = await User.find({
+      subscription_status: { $in: ['active', 'trial'] }
+    })
       .sort({ _id: -1 })
       .limit(5)
-      .populate('userId', 'name email')
-      .populate('planId', 'name');
+      .populate('plan_id', 'display_name')
+      .select('name email plan_id subscription_status createdAt');
 
     // Get recent payments (last 5)
     const recentPayments = await Payment.find()
@@ -135,17 +137,17 @@ export const getRecentActivity = async (_req: Request, res: Response, next: Next
       });
     }
 
-    // Add subscriptions
-    for (const sub of recentSubscriptions) {
-      const userName = (sub.userId as any)?.name || 'Unknown User';
-      const planName = (sub.planId as any)?.name || 'Unknown Plan';
+    // Add plan upgrades
+    for (const user of recentPlanUpgrades) {
+      const planName = (user.plan_id as any)?.display_name || 'Unknown Plan';
+      const statusLabel = user.subscription_status === 'trial' ? 'started trial for' : 'subscribed to';
       activity.push({
-        id: `subscription-${sub._id}`,
+        id: `plan-${user._id}`,
         type: 'subscription',
-        message: `${userName} subscribed to ${planName}`,
-        userName,
-        userId: (sub.userId as any)?._id?.toString(),
-        timestamp: sub.createdAt.toISOString(),
+        message: `${user.name} ${statusLabel} ${planName}`,
+        userName: user.name,
+        userId: user._id.toString(),
+        timestamp: user.createdAt.toISOString(),
       });
     }
 
