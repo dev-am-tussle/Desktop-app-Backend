@@ -6,9 +6,17 @@ import {
   validateCapability,
   checkLimit,
   verifySnapshot,
+  getEntitlementDefinitions,
 } from '../controllers/entitlements.controller';
 
 const router = Router();
+
+/**
+ * GET /api/entitlements/definitions
+ * Get all entitlement definitions (for admin/frontend use)
+ * No auth required - this is metadata for building plan forms
+ */
+router.get('/definitions', getEntitlementDefinitions);
 
 /**
  * POST /api/entitlements/sync

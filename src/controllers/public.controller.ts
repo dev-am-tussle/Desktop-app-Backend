@@ -335,7 +335,7 @@ export const processPayment = async (req: Request, res: Response, next: NextFunc
       userId: user._id,
       planId: plan._id,
       amount: plan.price_monthly || plan.price_yearly || 0,
-      currency: 'USD',
+      currency: plan.currency || 'AUD',
       method: paymentMethod,
       status: 'completed', // Simplified - in real app, integrate payment gateway
       transactionId: `TXN-${Date.now()}-${user._id}`,
@@ -343,10 +343,11 @@ export const processPayment = async (req: Request, res: Response, next: NextFunc
 
     // Update user plan and subscription status
     const subscriptionEnds = new Date();
-    if (plan.slug === 'pro' || plan.slug === 'business') {
-      subscriptionEnds.setMonth(subscriptionEnds.getMonth() + 1); // Monthly
-    } else if (plan.slug === 'enterprise') {
-      subscriptionEnds.setFullYear(subscriptionEnds.getFullYear() + 1); // Yearly
+    // If slug contains yearly or is enterprise, assume yearly, else monthly
+    if (plan.slug.includes('yearly') || plan.slug === 'enterprise') {
+      subscriptionEnds.setFullYear(subscriptionEnds.getFullYear() + 1);
+    } else {
+      subscriptionEnds.setMonth(subscriptionEnds.getMonth() + 1);
     }
 
     user.plan_id = plan._id as any;

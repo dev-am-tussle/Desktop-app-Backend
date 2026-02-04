@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import entitlementsService from '../services/entitlements.service';
+import EntitlementDefinition from '../models/EntitlementDefinition.model';
 
 /**
  * Sync/Regenerate entitlement snapshot
@@ -152,6 +153,63 @@ export const verifySnapshot = async (req: Request, res: Response): Promise<void>
     console.error('Error verifying snapshot:', error);
     res.status(500).json({
       error: 'Failed to verify snapshot',
+      details: error.message,
+    });
+  }
+};
+
+/**
+ * Get All Entitlement Definitions
+ * GET /api/entitlements/definitions
+ * Returns all available entitlement definitions for frontend/admin use
+ */
+export const getEntitlementDefinitions = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { category, type } = req.query;
+
+    // Build filter
+    const filter: any = {};
+    if (category) filter.category = category;
+    if (type) filter.type = type;
+
+    const definitions = await EntitlementDefinition.find(filter).sort({ category: 1, key: 1 });
+
+    // Group by category for easier frontend consumption
+    const groupedDefinitions: any = {
+      capabilities: [],
+      limits: [],
+      resources: [],
+      deployment: [],
+      support: [],
+    };
+
+    definitions.forEach((def: any) => {
+      if (groupedDefinitions[def.category]) {
+        groupedDefinitions[def.category].push({
+          id: def._id,
+          key: def.key,
+          type: def.type,
+          category: def.category,
+          description: def.description,
+          default_value: def.default_value,
+          validation_rules: def.validation_rules,
+        });
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        total: definitions.length,
+        definitions,
+        grouped: groupedDefinitions,
+        categories: Object.keys(groupedDefinitions),
+      },
+    });
+  } catch (error: any) {
+    console.error('Error fetching entitlement definitions:', error);
+    res.status(500).json({
+      error: 'Failed to fetch entitlement definitions',
       details: error.message,
     });
   }

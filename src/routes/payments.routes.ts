@@ -64,6 +64,15 @@ router.post(
   paymentsController.createCheckoutSession
 );
 
+router.get(
+  '/session-status/:sessionId',
+  authenticateToken,
+  readLimiter,
+  [param('sessionId').isString().notEmpty().withMessage('Session ID is required')],
+  validate,
+  paymentsController.checkSessionStatus
+);
+
 /**
  * GET /payments/subscription-status
  * Get user's subscription status

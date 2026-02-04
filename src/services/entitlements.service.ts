@@ -26,6 +26,7 @@ export interface FullEntitlementSnapshot {
   plan_id: string;
   plan_name: string;
   entitlements: EntitlementSnapshot;
+  definitions?: Record<string, any[]>;
   issued_at: Date;
   valid_until: Date;
   offline_allowed: boolean;
@@ -120,6 +121,26 @@ class EntitlementsService {
     // Fetch all entitlement definitions
     const definitions = await EntitlementDefinition.find({});
 
+    // Group definitions by category for the response
+    const groupedDefinitions: Record<string, any[]> = {
+      capabilities: [],
+      limits: [],
+      resources: [],
+      deployment: [],
+      support: [],
+    };
+
+    definitions.forEach(def => {
+      if (groupedDefinitions[def.category]) {
+        groupedDefinitions[def.category].push({
+          key: def.key,
+          type: def.type,
+          description: def.description,
+          default_value: def.default_value,
+        });
+      }
+    });
+
     // Fetch plan entitlements
     const planEntitlements = await PlanEntitlement.find({ plan_id: plan._id });
     const planEntitlementMap = new Map(planEntitlements.map(e => [e.entitlement_key, e.value]));
@@ -183,6 +204,7 @@ class EntitlementsService {
       plan_id: plan._id.toString(),
       plan_name: plan.name,
       entitlements: snapshot,
+      definitions: groupedDefinitions,
       issued_at: issuedAt,
       valid_until: validUntil,
       offline_allowed: snapshot.deployment.mode === 'hybrid' || snapshot.deployment.mode === 'local',
@@ -225,11 +247,34 @@ class EntitlementsService {
     }
 
     const plan = cache.plan_id as any;
+    
+    // Fetch and group definitions for consistent response
+    const definitions = await EntitlementDefinition.find({});
+    const groupedDefinitions: Record<string, any[]> = {
+      capabilities: [],
+      limits: [],
+      resources: [],
+      deployment: [],
+      support: [],
+    };
+
+    definitions.forEach(def => {
+      if (groupedDefinitions[def.category]) {
+        groupedDefinitions[def.category].push({
+          key: def.key,
+          type: def.type,
+          description: def.description,
+          default_value: def.default_value,
+        });
+      }
+    });
+
     return {
       user_id: cache.user_id.toString(),
       plan_id: cache.plan_id.toString(),
       plan_name: plan?.name || 'unknown',
       entitlements: cache.snapshot as EntitlementSnapshot,
+      definitions: groupedDefinitions,
       issued_at: cache.issued_at,
       valid_until: cache.valid_until,
       offline_allowed: (cache.snapshot as any).deployment?.mode === 'hybrid' || (cache.snapshot as any).deployment?.mode === 'local',

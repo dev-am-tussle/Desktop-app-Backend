@@ -12,6 +12,8 @@ export interface ISubscriptionPlan extends Document {
   display_name: string;              // "Pro Plan"
   slug: string;                      // URL-friendly identifier
   description?: string;
+  features: string[];                // Marketing features list
+  category: 'personal' | 'business' | 'enterprise'; // Plan category for filtering
   
   // Pricing
   price_monthly: number;             // Monthly price (0 for free)
@@ -58,6 +60,23 @@ const SubscriptionPlanSchema: Schema<ISubscriptionPlan> = new Schema(
     description: {
       type: String,
       default: null,
+    },
+    features: {
+      type: [String],
+      default: [],
+      validate: {
+        validator: function(arr: string[]) {
+          return arr.length <= 10; // Max 10 feature items
+        },
+        message: 'Features array cannot have more than 10 items'
+      }
+    },
+    category: {
+      type: String,
+      enum: ['personal', 'business', 'enterprise'],
+      required: [true, 'Plan category is required'],
+      default: 'personal',
+      index: true,
     },
     // Pricing
     price_monthly: {

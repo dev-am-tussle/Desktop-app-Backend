@@ -25,10 +25,11 @@ import EntitlementDefinition from '../models/EntitlementDefinition.model';
  */
 export const getSubscriptionPlans = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { status } = req.query;
+    const { status, category } = req.query;
 
     const filter: any = {};
     if (status) filter.status = status;
+    if (category) filter.category = category;
 
     const plans = await SubscriptionPlan.find(filter);
 
@@ -113,49 +114,72 @@ export const createSubscriptionPlan = async (req: Request, res: Response, next: 
   try {
     const {
       name,
+      display_name,
+      slug,
       description,
-      price,
-      currency,
-      billingPeriod,
-      seats,
       features,
-      maxModels,
-      offlineModelSizeLimit,
+      category,
+      price_monthly,
+      price_yearly,
+      currency,
+      is_contact_sales,
       status,
+      sort_order,
     } = req.body;
 
     // STEP 1: Create Stripe Product
     console.log('🔵 Creating Stripe Product...');
     const stripeProduct = await stripeService.createStripeProduct({
-      name,
+      name: display_name || name,
       description,
     });
     console.log('✅ Stripe Product Created:', stripeProduct.id);
 
-    // STEP 2: Create Stripe Price
-    console.log('🔵 Creating Stripe Price...');
-    const stripePrice = await stripeService.createStripePrice({
-      productId: stripeProduct.id,
-      amount: price,
-      currency: currency || 'USD',
-      billingPeriod,
-    });
-    console.log('✅ Stripe Price Created:', stripePrice.id);
+    // STEP 2: Create Stripe Prices
+    let stripePriceMonthlyId = null;
+    let stripePriceYearlyId = null;
+
+    if (price_monthly > 0) {
+      console.log('🔵 Creating Monthly Stripe Price...');
+      const monthlyPrice = await stripeService.createStripePrice({
+        productId: stripeProduct.id,
+        amount: price_monthly,
+        currency: currency || 'AUD',
+        billingPeriod: 'monthly',
+      });
+      stripePriceMonthlyId = monthlyPrice.id;
+      console.log('✅ Monthly Stripe Price Created:', stripePriceMonthlyId);
+    }
+
+    if (price_yearly && price_yearly > 0) {
+      console.log('🔵 Creating Yearly Stripe Price...');
+      const yearlyPrice = await stripeService.createStripePrice({
+        productId: stripeProduct.id,
+        amount: price_yearly,
+        currency: currency || 'AUD',
+        billingPeriod: 'yearly',
+      });
+      stripePriceYearlyId = yearlyPrice.id;
+      console.log('✅ Yearly Stripe Price Created:', stripePriceYearlyId);
+    }
 
     // STEP 3: Save Plan in Database with Stripe IDs
     const plan = await SubscriptionPlan.create({
       name,
+      display_name: display_name || name,
+      slug: slug || name.toLowerCase().replace(/\s+/g, '-'),
       description,
-      price,
-      currency: currency || 'USD',
-      billingPeriod,
-      seats: seats || 1,
       features: features || [],
-      maxModels,
-      offlineModelSizeLimit,
+      category: category || 'personal',
+      price_monthly: price_monthly || 0,
+      price_yearly: price_yearly || 0,
+      currency: currency || 'AUD',
+      is_contact_sales: is_contact_sales || false,
       status: status || 'active',
-      stripeProductId: stripeProduct.id,
-      stripePriceId: stripePrice.id,
+      sort_order: sort_order || 1,
+      stripe_product_id: stripeProduct.id,
+      stripe_price_monthly_id: stripePriceMonthlyId,
+      stripe_price_yearly_id: stripePriceYearlyId,
     });
 
     res.status(201).json({
@@ -182,31 +206,58 @@ export const updateSubscriptionPlan = async (req: Request, res: Response, next: 
       throw new AppError('Subscription plan not found', 404, 'PLAN_NOT_FOUND');
     }
 
-    // If price is being updated, create new Stripe Price (prices are immutable)
-    if (updates.price && updates.price !== plan.price) {
-      console.log('🔵 Price changed - Creating new Stripe Price...');
+    // Handle monthly price updates
+    if (updates.price_monthly !== undefined && updates.price_monthly !== plan.price_monthly) {
+      console.log('🔵 Monthly price changed - Creating new Stripe Price...');
 
-      // Archive old price
-      if (plan.stripePriceId) {
-        await stripeService.archiveStripePrice(plan.stripePriceId);
+      // Archive old monthly price
+      if (plan.stripe_price_monthly_id) {
+        await stripeService.archiveStripePrice(plan.stripe_price_monthly_id);
       }
 
-      // Create new price
-      const newStripePrice = await stripeService.createStripePrice({
-        productId: plan.stripeProductId!,
-        amount: updates.price,
-        currency: updates.currency || plan.currency,
-        billingPeriod: updates.billingPeriod || plan.billingPeriod,
-      });
+      // Create new monthly price if > 0
+      if (updates.price_monthly > 0) {
+        const newMonthlyPrice = await stripeService.createStripePrice({
+          productId: plan.stripe_product_id!,
+          amount: updates.price_monthly,
+          currency: updates.currency || plan.currency,
+          billingPeriod: 'monthly',
+        });
+        updates.stripe_price_monthly_id = newMonthlyPrice.id;
+        console.log('✅ New Monthly Stripe Price Created:', newMonthlyPrice.id);
+      } else {
+        updates.stripe_price_monthly_id = null;
+      }
+    }
 
-      updates.stripePriceId = newStripePrice.id;
-      console.log('✅ New Stripe Price Created:', newStripePrice.id);
+    // Handle yearly price updates
+    if (updates.price_yearly !== undefined && updates.price_yearly !== plan.price_yearly) {
+      console.log('🔵 Yearly price changed - Creating new Stripe Price...');
+
+      // Archive old yearly price
+      if (plan.stripe_price_yearly_id) {
+        await stripeService.archiveStripePrice(plan.stripe_price_yearly_id);
+      }
+
+      // Create new yearly price if > 0
+      if (updates.price_yearly > 0) {
+        const newYearlyPrice = await stripeService.createStripePrice({
+          productId: plan.stripe_product_id!,
+          amount: updates.price_yearly,
+          currency: updates.currency || plan.currency,
+          billingPeriod: 'yearly',
+        });
+        updates.stripe_price_yearly_id = newYearlyPrice.id;
+        console.log('✅ New Yearly Stripe Price Created:', newYearlyPrice.id);
+      } else {
+        updates.stripe_price_yearly_id = null;
+      }
     }
 
     // Update Stripe Product if name/description changed
-    if ((updates.name || updates.description) && plan.stripeProductId) {
-      await stripeService.updateStripeProduct(plan.stripeProductId, {
-        name: updates.name,
+    if ((updates.display_name || updates.description) && plan.stripe_product_id) {
+      await stripeService.updateStripeProduct(plan.stripe_product_id, {
+        name: updates.display_name,
         description: updates.description,
       });
     }
@@ -246,11 +297,14 @@ export const archiveSubscriptionPlan = async (req: Request, res: Response, next:
     }
 
     // Archive Stripe resources
-    if (plan.stripeProductId) {
-      await stripeService.archiveStripeProduct(plan.stripeProductId);
+    if (plan.stripe_product_id) {
+      await stripeService.archiveStripeProduct(plan.stripe_product_id);
     }
-    if (plan.stripePriceId) {
-      await stripeService.archiveStripePrice(plan.stripePriceId);
+    if (plan.stripe_price_monthly_id) {
+      await stripeService.archiveStripePrice(plan.stripe_price_monthly_id);
+    }
+    if (plan.stripe_price_yearly_id) {
+      await stripeService.archiveStripePrice(plan.stripe_price_yearly_id);
     }
 
     // Archive plan in database
@@ -317,25 +371,28 @@ export const deleteSubscriptionPlan = async (req: Request, res: Response, next: 
     }
 
     // Check if any active subscriptions use this plan
-    const activeSubscriptions = await Subscription.countDocuments({
-      planId: id,
-      status: { $in: ['active', 'trial'] },
+    const activeUsers = await User.countDocuments({
+      plan_id: id,
+      subscription_status: { $in: ['active', 'trial'] },
     });
 
-    if (activeSubscriptions > 0) {
+    if (activeUsers > 0) {
       throw new AppError(
-        `Cannot delete plan. ${activeSubscriptions} active subscription(s) are using this plan. Archive it instead.`,
+        `Cannot delete plan. ${activeUsers} active user(s) are using this plan. Archive it instead.`,
         400,
         'PLAN_IN_USE'
       );
     }
 
     // Archive Stripe resources
-    if (plan.stripeProductId) {
-      await stripeService.archiveStripeProduct(plan.stripeProductId);
+    if (plan.stripe_product_id) {
+      await stripeService.archiveStripeProduct(plan.stripe_product_id);
     }
-    if (plan.stripePriceId) {
-      await stripeService.archiveStripePrice(plan.stripePriceId);
+    if (plan.stripe_price_monthly_id) {
+      await stripeService.archiveStripePrice(plan.stripe_price_monthly_id);
+    }
+    if (plan.stripe_price_yearly_id) {
+      await stripeService.archiveStripePrice(plan.stripe_price_yearly_id);
     }
 
     // Delete plan from database

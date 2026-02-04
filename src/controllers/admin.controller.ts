@@ -531,6 +531,8 @@ export const createPlanWithEntitlements = async (req: Request, res: Response, ne
       display_name: plan.display_name,
       slug: plan.slug,
       description: plan.description || '',
+      features: plan.features || [],
+      category: plan.category || 'personal',
       price_monthly: plan.price_monthly || 0,
       price_yearly: plan.price_yearly || 0,
       currency: plan.currency || 'USD',

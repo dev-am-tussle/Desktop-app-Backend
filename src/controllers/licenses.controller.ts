@@ -33,7 +33,7 @@ export const getLicenses = async (req: Request, res: Response, next: NextFunctio
     const [licenses, total] = await Promise.all([
       License.find(filter)
         .populate('userId', 'name email')
-        .populate('planId', 'name price currency billingPeriod')
+        .populate('planId', 'name display_name price_monthly price_yearly currency')
         .sort({ _id: -1 })
         .skip(skip)
         .limit(limit),
@@ -63,7 +63,7 @@ export const getLicenseById = async (req: Request, res: Response, next: NextFunc
 
     const license = await License.findById(id)
       .populate('userId', 'name email avatar')
-      .populate('planId', 'name price currency billingPeriod features');
+      .populate('planId', 'name display_name price_monthly price_yearly currency features');
 
     if (!license) {
       throw new AppError('License not found', 404, 'LICENSE_NOT_FOUND');
@@ -118,7 +118,7 @@ export const generateLicense = async (req: Request, res: Response, next: NextFun
 
     const populatedLicense = await License.findById(license._id)
       .populate('userId', 'name email')
-      .populate('planId', 'name price currency billingPeriod');
+      .populate('planId', 'name display_name price_monthly price_yearly currency');
 
     res.status(201).json({
       data: populatedLicense,
@@ -157,7 +157,7 @@ export const assignLicense = async (req: Request, res: Response, next: NextFunct
 
     const populatedLicense = await License.findById(license._id)
       .populate('userId', 'name email')
-      .populate('planId', 'name price currency billingPeriod');
+      .populate('planId', 'name display_name price_monthly price_yearly currency');
 
     res.json({
       data: populatedLicense,
