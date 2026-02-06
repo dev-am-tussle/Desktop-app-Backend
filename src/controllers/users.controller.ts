@@ -336,7 +336,7 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
           role: user.role,
           status: user.status,
           subscriptionStatus: user.subscription_status,
-          planId: user.plan_id,
+          plan: freePlan,
           trialEndsAt: user.subscription_ends_at,
           createdAt: user.createdAt,
         },
@@ -406,16 +406,8 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
       const plan = await SubscriptionPlan.findById(user.plan_id).lean();
       if (plan) {
         planDetails = {
+          ...plan,
           id: plan._id,
-          name: plan.name,
-          display_name: plan.display_name,
-          slug: plan.slug,
-          description: plan.description,
-          price_monthly: plan.price_monthly,
-          price_yearly: plan.price_yearly,
-          currency: plan.currency,
-          is_contact_sales: plan.is_contact_sales,
-          status: plan.status,
         };
       }
     }
