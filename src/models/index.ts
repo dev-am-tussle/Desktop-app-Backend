@@ -22,6 +22,8 @@ import EntitlementDefinition from './EntitlementDefinition.model';
 import PlanEntitlement from './PlanEntitlement.model';
 import UserEntitlementOverride from './UserEntitlementOverride.model';
 import EntitlementCache from './EntitlementCache.model';
+import { Coupon } from './Coupon.model';
+import { CouponRedemption } from './CouponRedemption.model';
 
 // Export all models
 export {
@@ -41,6 +43,8 @@ export {
   PlanEntitlement,
   UserEntitlementOverride,
   EntitlementCache,
+  Coupon,
+  CouponRedemption,
 };
 
 // Export types
@@ -61,6 +65,8 @@ export type { IEntitlementDefinition } from './EntitlementDefinition.model';
 export type { IPlanEntitlement } from './PlanEntitlement.model';
 export type { IUserEntitlementOverride } from './UserEntitlementOverride.model';
 export type { IEntitlementCache } from './EntitlementCache.model';
+export type { ICoupon } from './Coupon.model';
+export type { ICouponRedemption } from './CouponRedemption.model';
 
 // Default export - all models as object
 export default {
@@ -75,4 +81,6 @@ export default {
   InstalledModel,
   ApiKey,
   Conversation,
+  Coupon,
+  CouponRedemption,
 };

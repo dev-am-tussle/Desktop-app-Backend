@@ -12,6 +12,7 @@ export interface IEntitlementCache extends Document {
   _id: mongoose.Types.ObjectId;
   user_id: mongoose.Types.ObjectId;
   plan_id: mongoose.Types.ObjectId;
+  source: 'stripe' | 'coupon' | 'trial' | 'manual';
   snapshot: Record<string, any>;     // Full resolved entitlements
   signature: string;                 // HMAC signature for tampering protection
   issued_at: Date;
@@ -33,6 +34,12 @@ const EntitlementCacheSchema: Schema<IEntitlementCache> = new Schema(
       type: Schema.Types.ObjectId,
       ref: 'SubscriptionPlan',
       required: [true, 'Plan ID is required'],
+    },
+    source: {
+      type: String,
+      enum: ['stripe', 'coupon', 'trial', 'manual'],
+      required: true,
+      default: 'trial',
     },
     snapshot: {
       type: Schema.Types.Mixed,

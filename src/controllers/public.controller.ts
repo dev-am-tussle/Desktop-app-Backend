@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { Request, Response, NextFunction } from 'express';
-import { User, SubscriptionPlan, Payment } from '../models';
+import { User, SubscriptionPlan, Payment, CouponRedemption } from '../models';
 import { AppError } from '../middleware/errorHandler';
 import jwt from 'jsonwebtoken';
 import { resolveUserEntitlements } from '../services/entitlements.service';
@@ -150,6 +150,7 @@ export const loginPublicUser = async (req: Request, res: Response, next: NextFun
       { expiresIn: tokenExpiry }
     );
 
+    // Generate refresh token
     const refreshToken = jwt.sign(
       {
         userId: user._id.toString(),
@@ -158,6 +159,25 @@ export const loginPublicUser = async (req: Request, res: Response, next: NextFun
       process.env.JWT_REFRESH_SECRET!,
       { expiresIn: '90d' }
     );
+
+    // Prepare plan response
+    let planInfo = {
+      id: (user.plan_id as any)?._id,
+      name: (user.plan_id as any)?.display_name,
+      slug: (user.plan_id as any)?.slug,
+    };
+
+    // If active via coupon, override plan info
+    if (user.subscription_status === 'active' && !user.stripeSubscriptionId) {
+      const lastRedemption = await CouponRedemption.findOne({ user_id: user._id }).sort({ redeemed_at: -1 });
+      if (lastRedemption) {
+        planInfo = {
+          id: lastRedemption.coupon_id as any,
+          name: planInfo.name || 'Custom Individual Plan (Coupon)',
+          slug: 'coupon-access',
+        };
+      }
+    }
 
     res.json({
       data: {
@@ -169,11 +189,7 @@ export const loginPublicUser = async (req: Request, res: Response, next: NextFun
           onboardingPhase: user.onboardingPhase,
           lastActivePhase: user.lastActivePhase,
         },
-        plan: {
-          id: (user.plan_id as any)?._id,
-          name: (user.plan_id as any)?.display_name,
-          slug: (user.plan_id as any)?.slug,
-        },
+        plan: planInfo,
         subscription: {
           status: user.subscription_status,
           ends_at: user.subscription_ends_at,
@@ -233,6 +249,25 @@ export const getPublicUserProfile = async (req: Request, res: Response, next: Ne
     // Generate fresh entitlement snapshot
     const entitlements = await resolveUserEntitlements(user._id.toString());
 
+    // Prepare plan response
+    let planInfo = {
+      id: (user.plan_id as any)?._id,
+      name: (user.plan_id as any)?.display_name,
+      slug: (user.plan_id as any)?.slug,
+    };
+
+    // If active via coupon, override plan info
+    if (user.subscription_status === 'active' && !user.stripeSubscriptionId) {
+      const lastRedemption = await CouponRedemption.findOne({ user_id: user._id }).sort({ redeemed_at: -1 });
+      if (lastRedemption) {
+        planInfo = {
+          id: lastRedemption.coupon_id as any,
+          name: planInfo.name || 'Custom Individual Plan (Coupon)',
+          slug: 'coupon-access',
+        };
+      }
+    }
+
     res.json({
       data: {
         user: {
@@ -246,11 +281,7 @@ export const getPublicUserProfile = async (req: Request, res: Response, next: Ne
           phaseCompletedAt: user.phaseCompletedAt,
           lastActivePhase: user.lastActivePhase,
         },
-        plan: {
-          id: (user.plan_id as any)?._id,
-          name: (user.plan_id as any)?.display_name,
-          slug: (user.plan_id as any)?.slug,
-        },
+        plan: planInfo,
         subscription: {
           status: user.subscription_status,
           ends_at: user.subscription_ends_at,

@@ -6,6 +6,7 @@ import EntitlementDefinition from '../models/EntitlementDefinition.model';
 import PlanEntitlement from '../models/PlanEntitlement.model';
 import UserEntitlementOverride from '../models/UserEntitlementOverride.model';
 import EntitlementCache from '../models/EntitlementCache.model';
+import { CouponRedemption } from '../models/CouponRedemption.model';
 
 /**
  * Entitlement Snapshot Structure
@@ -25,6 +26,7 @@ export interface FullEntitlementSnapshot {
   user_id: string;
   plan_id: string;
   plan_name: string;
+  source: 'stripe' | 'coupon' | 'trial' | 'manual';
   entitlements: EntitlementSnapshot;
   definitions?: Record<string, any[]>;
   issued_at: Date;
@@ -199,10 +201,30 @@ class EntitlementsService {
     const validUntil = new Date(issuedAt.getTime() + ttlHours * 60 * 60 * 1000);
     const signature = this.generateSignature(snapshot, user._id.toString(), issuedAt);
 
+    // Determine subscription source
+    let subscriptionSource: 'stripe' | 'coupon' | 'trial';
+    let finalPlanId = plan._id.toString();
+    let finalPlanName = plan.name;
+
+    if (user.stripeSubscriptionId) {
+      subscriptionSource = 'stripe';
+    } else if (user.subscription_status === 'active' && !user.stripeSubscriptionId) {
+      subscriptionSource = 'coupon';
+      // If it's a coupon, try to get the coupon ID for plan_id and set name to "coupon"
+      const lastRedemption = await CouponRedemption.findOne({ user_id: user._id }).sort({ redeemed_at: -1 });
+      if (lastRedemption) {
+        finalPlanId = lastRedemption.coupon_id.toString();
+        finalPlanName = 'coupon';
+      }
+    } else {
+      subscriptionSource = 'trial';
+    }
+
     const fullSnapshot: FullEntitlementSnapshot = {
       user_id: user._id.toString(),
-      plan_id: plan._id.toString(),
-      plan_name: plan.name,
+      plan_id: finalPlanId,
+      plan_name: finalPlanName,
+      source: subscriptionSource,
       entitlements: snapshot,
       definitions: groupedDefinitions,
       issued_at: issuedAt,
@@ -214,7 +236,8 @@ class EntitlementsService {
     // Cache snapshot in database
     await EntitlementCache.create({
       user_id: user._id,
-      plan_id: plan._id,
+      plan_id: finalPlanId, // Store the overridden ID
+      source: subscriptionSource,
       snapshot,
       signature,
       issued_at: issuedAt,
@@ -247,6 +270,7 @@ class EntitlementsService {
     }
 
     const plan = cache.plan_id as any;
+    const source = (cache.source || 'trial') as any;
     
     // Fetch and group definitions for consistent response
     const definitions = await EntitlementDefinition.find({});
@@ -272,7 +296,8 @@ class EntitlementsService {
     return {
       user_id: cache.user_id.toString(),
       plan_id: cache.plan_id.toString(),
-      plan_name: plan?.name || 'unknown',
+      plan_name: source === 'coupon' ? 'coupon' : (plan?.name || 'unknown'),
+      source: source,
       entitlements: cache.snapshot as EntitlementSnapshot,
       definitions: groupedDefinitions,
       issued_at: cache.issued_at,

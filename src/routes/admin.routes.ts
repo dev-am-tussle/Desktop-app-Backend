@@ -13,6 +13,12 @@ import {
   updateEntitlementDefinition,
   deleteEntitlementDefinition,
   createPlanWithEntitlements,
+  createCoupon,
+  getCoupons,
+  getCouponByCode,
+  getCouponRedemptions,
+  revokeCoupon,
+  deleteCoupon,
 } from '../controllers/admin.controller';
 import { authenticateAdminToken } from '../middleware/auth';
 import { validate } from '../middleware/validation';
@@ -187,6 +193,90 @@ router.post(
   ],
   validate,
   createPlanWithEntitlements
+);
+
+// ============================================
+// COUPON MANAGEMENT ROUTES
+// ============================================
+
+/**
+ * POST /admin/coupons
+ * Create a new coupon
+ */
+router.post(
+  '/coupons',
+  writeLimiter,
+  authenticateAdminToken,
+  [
+    body('code').notEmpty().withMessage('Coupon code is required'),
+    body('validity').isInt({ min: 1 }).withMessage('Validity must be a positive integer'),
+    body('max_redemptions').isInt({ min: 1 }).withMessage('Max redemptions must be a positive integer'),
+    body('max_redemptions_per_user').isInt({ min: 1 }).withMessage('Max redemptions per user must be a positive integer'),
+    body('description').optional().isString().withMessage('Description must be a string'),
+    body('expires_at').isISO8601().withMessage('Expires at must be a valid date'),
+    body('type').isIn(['plan', 'custom']).withMessage('Type must be plan or custom'),
+    body('plan_id').if(body('type').equals('plan')).notEmpty().withMessage('Plan ID is required for plan type coupons'),
+    body('entitlements').if(body('type').equals('custom')).notEmpty().withMessage('Entitlements are required for custom type coupons'),
+    body('status').optional().isIn(['active', 'disabled']).withMessage('Status must be active or disabled'),
+    body('metadata').optional().isArray().withMessage('Metadata must be an array'),
+  ],
+  validate,
+  createCoupon
+);
+
+/**
+ * GET /admin/coupons
+ * Get all coupons
+ */
+router.get(
+  '/coupons',
+  readLimiter,
+  authenticateAdminToken,
+  getCoupons
+);
+
+/**
+ * GET /admin/coupons/:code
+ * Get coupon by code
+ */
+router.get(
+  '/coupons/:code',
+  readLimiter,
+  authenticateAdminToken,
+  getCouponByCode
+);
+
+/**
+ * GET /admin/coupons/:code/redemptions
+ * Get redemptions for a specific coupon
+ */
+router.get(
+  '/coupons/:code/redemptions',
+  readLimiter,
+  authenticateAdminToken,
+  getCouponRedemptions
+);
+
+/**
+ * PUT /admin/coupons/:code/revoke
+ * Revoke/Disable a coupon
+ */
+router.put(
+  '/coupons/:code/revoke',
+  writeLimiter,
+  authenticateAdminToken,
+  revokeCoupon
+);
+
+/**
+ * DELETE /admin/coupons/:code
+ * Delete a coupon (if not redeemed)
+ */
+router.delete(
+  '/coupons/:code',
+  writeLimiter,
+  authenticateAdminToken,
+  deleteCoupon
 );
 
 export default router;

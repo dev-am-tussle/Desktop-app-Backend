@@ -17,6 +17,7 @@ import paymentsRoutes from './payments.routes';
 import providersRoutes from './providers.routes';
 import chatRoutes from './chat.routes';
 import entitlementsRoutes from './entitlements.routes';
+import couponsRoutes from './coupons.routes';
 // Note: webhookRoutes mounted separately in server.ts before JSON parser
 
 const router = Router();
@@ -47,5 +48,6 @@ router.use('/dashboard', dashboardRoutes); // Dashboard analytics routes
 router.use('/providers', providersRoutes); // External API provider routes
 router.use('/chat', chatRoutes); // Chat completion routes
 router.use('/entitlements', entitlementsRoutes); // Entitlements management routes
+router.use('/coupons', couponsRoutes); // Coupon redemption routes
 
 export default router;

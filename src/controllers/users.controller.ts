@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { User, InstalledModel, ApiKey, License, Payment, Conversation } from '../models';
+import { User, InstalledModel, ApiKey, License, Payment, Conversation, CouponRedemption } from '../models';
 import SubscriptionPlan from '../models/SubscriptionPlan.model';
 import { AppError } from '../middleware/errorHandler';
 import jwt from 'jsonwebtoken';
@@ -408,6 +408,23 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
         planDetails = {
           ...plan,
           id: plan._id,
+        };
+      }
+    }
+
+    // Handle coupon-based subscription - Priority over standard plan display if active via coupon
+    if (user.subscription_status === 'active' && !user.stripeSubscriptionId) {
+      const lastRedemption = await CouponRedemption.findOne({ user_id: user._id }).sort({ redeemed_at: -1 });
+      if (lastRedemption) {
+        planDetails = {
+          ...(planDetails || {}),
+          id: lastRedemption.coupon_id,
+          name: 'coupon',
+          display_name: planDetails?.display_name || 'Custom Individual Plan (Coupon)',
+          slug: 'coupon-access',
+          description: 'Access granted via coupon redemption',
+          category: 'personal',
+          features: planDetails?.features || []
         };
       }
     }

@@ -6,6 +6,7 @@ import EntitlementDefinition from '../models/EntitlementDefinition.model';
 import SubscriptionPlan from '../models/SubscriptionPlan.model';
 import PlanEntitlement from '../models/PlanEntitlement.model';
 import * as stripeService from '../utils/stripe';
+import CouponService from '../services/coupon.service';
 
 // ============================================
 // ADMIN AUTHENTICATION CONTROLLERS
@@ -593,6 +594,166 @@ export const createPlanWithEntitlements = async (req: Request, res: Response, ne
       },
     });
   } catch (error) {
+    next(error);
+  }
+};
+
+// ============================================
+// COUPON MANAGEMENT CONTROLLERS
+// ============================================
+
+/**
+ * Create Coupon
+ * Admin creates a new coupon for users to redeem
+ */
+export const createCoupon = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const {
+      code,
+      validity,
+      max_redemptions,
+      max_redemptions_per_user,
+      description,
+      expires_at,
+      type,
+      plan_id,
+      entitlements,
+      status,
+      metadata
+    } = req.body;
+
+    const adminId = (req as any).admin.adminId;
+
+    const coupon = await CouponService.createCoupon({
+      code,
+      validity,
+      max_redemptions,
+      max_redemptions_per_user,
+      description,
+      expires_at,
+      type,
+      plan_id,
+      entitlements,
+      status: status || 'active',
+      metadata: metadata || [],
+      createdBy: adminId
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Coupon created successfully',
+      data: coupon
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get All Coupons
+ * List all coupons with pagination
+ */
+export const getCoupons = async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const coupons = await CouponService.listCoupons();
+
+    res.status(200).json({
+      success: true,
+      message: 'Coupons retrieved successfully',
+      data: coupons
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get Coupon by Code
+ * Admin can check coupon details by code
+ */
+export const getCouponByCode = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { code } = req.params;
+    
+    const coupon = await CouponService.getCouponByCode(code);
+    if (!coupon) {
+      res.status(404).json({
+        success: false,
+        message: 'Coupon not found'
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Coupon retrieved successfully',
+      data: coupon
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get Coupon Redemptions
+ * Admin can see who redeemed a specific coupon
+ */
+export const getCouponRedemptions = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { code } = req.params;
+
+    const redemptions = await CouponService.getCouponRedemptions(code);
+
+    res.status(200).json({
+      success: true,
+      message: 'Redemptions retrieved successfully',
+      data: redemptions
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Revoke Coupon
+ * Admin can disable a coupon to prevent further redemptions
+ */
+export const revokeCoupon = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { code } = req.params;
+    const coupon = await CouponService.revokeCoupon(code);
+
+    res.status(200).json({
+      success: true,
+      message: 'Coupon revoked successfully',
+      data: coupon
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Delete Coupon
+ * Admin can delete a coupon only if it has not been redeemed yet
+ */
+export const deleteCoupon = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { code } = req.params;
+    await CouponService.deleteCoupon(code);
+
+    res.status(200).json({
+      success: true,
+      message: 'Coupon deleted successfully'
+    });
+  } catch (error: any) {
+    if (error.message.includes('already been redeemed')) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+      return;
+    }
     next(error);
   }
 };
