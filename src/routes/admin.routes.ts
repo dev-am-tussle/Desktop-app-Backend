@@ -19,6 +19,7 @@ import {
   getCouponRedemptions,
   revokeCoupon,
   deleteCoupon,
+  getPlanEntitlements,
 } from '../controllers/admin.controller';
 import { authenticateAdminToken } from '../middleware/auth';
 import { validate } from '../middleware/validation';
@@ -193,6 +194,17 @@ router.post(
   ],
   validate,
   createPlanWithEntitlements
+);
+
+/**
+ * GET /admin/plans/:id/entitlements
+ * Get specific plan with all its entitlements
+ */
+router.get(
+  '/plans/:id/entitlements',
+  readLimiter,
+  authenticateAdminToken,
+  getPlanEntitlements
 );
 
 // ============================================

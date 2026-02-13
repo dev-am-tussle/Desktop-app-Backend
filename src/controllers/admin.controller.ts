@@ -757,3 +757,61 @@ export const deleteCoupon = async (req: Request, res: Response, next: NextFuncti
     next(error);
   }
 };
+
+/**
+ * Get Specific Plan with Full Entitlements (grouped)
+ * GET /api/admin/plans/:id/entitlements
+ */
+export const getPlanEntitlements = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+
+    const plan = await SubscriptionPlan.findById(id);
+    if (!plan) {
+      throw new AppError('Subscription plan not found', 404, 'PLAN_NOT_FOUND');
+    }
+
+    // Get plan entitlements from DB
+    const planEntitlements = await PlanEntitlement.find({ plan_id: plan._id }).lean();
+
+    // Get entitlement definitions for metadata/descriptions
+    const entitlementKeys = planEntitlements.map((e: any) => e.entitlement_key);
+    const definitions = await EntitlementDefinition.find({
+      key: { $in: entitlementKeys },
+    }).lean();
+
+    const definitionMap = new Map(definitions.map((d: any) => [d.key, d]));
+
+    // Group entitlements by category (capabilities, limits, etc.)
+    const groupedEntitlements: any = {
+      capabilities: [],
+      limits: [],
+      resources: [],
+      deployment: [],
+      support: [],
+    };
+
+    planEntitlements.forEach((ent: any) => {
+      const def = definitionMap.get(ent.entitlement_key);
+      if (def) {
+        groupedEntitlements[def.category].push({
+          key: ent.entitlement_key,
+          value: ent.value,
+          type: def.type,
+          description: def.description,
+        });
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        plan: plan,
+        entitlements: groupedEntitlements,
+        raw_entitlements: planEntitlements,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
