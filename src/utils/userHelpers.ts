@@ -34,7 +34,7 @@ export async function canUserDownloadModels(userId: string | Types.ObjectId) {
 /**
  * Get complete user profile with subscription details
  */
-export async function getUserProfile(userId: string | Types.ObjectId) {
+export async function getUserProfile(userId: string | Types.ObjectId): Promise<any> {
   const user = await User.findById(userId).populate('plan_id');
   if (!user) return null;
 
