@@ -8,6 +8,7 @@ import {
   getAdminProfile,
   updateAdminProfile,
   changeAdminPassword,
+  createAdmin,
   createEntitlementDefinition,
   getEntitlementDefinitions,
   updateEntitlementDefinition,
@@ -21,7 +22,7 @@ import {
   deleteCoupon,
   getPlanEntitlements,
 } from '../controllers/admin.controller';
-import { authenticateAdminToken } from '../middleware/auth';
+import { authenticateAdminToken, requireAdminRole } from '../middleware/auth';
 import { validate } from '../middleware/validation';
 import { writeLimiter, readLimiter } from '../middleware/rateLimiter';
 
@@ -114,6 +115,30 @@ router.post(
   ],
   validate,
   changeAdminPassword
+);
+
+/**
+ * POST /admin/admins
+ * Create a new admin/support user (admin-only)
+ */
+router.post(
+  '/admins',
+  writeLimiter,
+  authenticateAdminToken,
+  requireAdminRole(['admin']),
+  [
+    body('name').isLength({ min: 2 }).withMessage('Name must be at least 2 characters'),
+    body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
+    body('password')
+      .isLength({ min: 8 })
+      .withMessage('Password must be at least 8 characters')
+      .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+      .withMessage('Password must contain uppercase, lowercase, number, and special character'),
+    body('role').optional().isIn(['admin', 'support']).withMessage('Role must be admin or support'),
+    body('status').optional().isIn(['active', 'disabled']).withMessage('Status must be active or disabled'),
+  ],
+  validate,
+  createAdmin
 );
 
 // ============================================

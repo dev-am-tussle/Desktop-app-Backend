@@ -9,7 +9,7 @@
 // - EntitlementCache for feature access control
 // ============================================
 import { Request, Response, NextFunction } from 'express';
-import { SubscriptionPlan, User } from '../models';
+import { SubscriptionPlan, User, CouponRedemption } from '../models';
 import { AppError } from '../middleware/errorHandler';
 import * as stripeService from '../utils/stripe';
 import PlanEntitlement from '../models/PlanEntitlement.model';
@@ -437,31 +437,50 @@ export const getSubscriptions = async (req: Request, res: Response, next: NextFu
     const [users, total] = await Promise.all([
       User.find(filter)
         .populate('plan_id', 'name display_name slug price_monthly price_yearly')
-        .select('name email plan_id subscription_status subscription_ends_at createdAt')
+        .select('name email plan_id subscription_status subscription_ends_at createdAt stripeSubscriptionId')
         .sort({ _id: -1 })
         .skip(skip)
         .limit(Number(limit)),
       User.countDocuments(filter),
     ]);
 
+    const userIds = users.map((user: any) => user._id);
+    const couponRedemptions = await CouponRedemption.find({
+      user_id: { $in: userIds },
+    }).select('user_id').lean();
+
+    const couponUserIds = new Set(couponRedemptions.map((cr: any) => cr.user_id.toString()));
+
     // Transform to match old subscription response format for frontend compatibility
-    const subscriptions = users.map((user: any) => ({
-      _id: user._id,
-      userId: {
+    const subscriptions = users.map((user: any) => {
+      let access_type = 'free';
+
+      if (user.stripeSubscriptionId) {
+        access_type = 'stripe';
+      } else if (couponUserIds.has(user._id.toString())) {
+        access_type = 'coupon';
+      } else if (user.subscription_status === 'trial') {
+        access_type = 'trial';
+      }
+
+      return {
         _id: user._id,
-        name: user.name,
-        email: user.email,
-      },
-      planId: user.plan_id ? {
-        _id: user.plan_id._id,
-        name: user.plan_id.display_name || user.plan_id.name,
-        price: user.plan_id.price_monthly || 0,
-        currency: 'USD',
-      } : null,
-      status: user.subscription_status || 'expired',
-      nextBillingDate: user.subscription_ends_at,
-      createdAt: user.createdAt,
-    }));
+        userId: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+        },
+        planId: user.plan_id ? {
+          _id: user.plan_id._id,
+          name: user.plan_id.display_name || user.plan_id.name,
+          price: user.plan_id.price_monthly || 0,
+        } : null,
+        status: user.subscription_status || 'expired',
+        nextBillingDate: user.subscription_ends_at,
+        createdAt: user.createdAt,
+        access_type,
+      };
+    });
 
     res.json({
       data: subscriptions,

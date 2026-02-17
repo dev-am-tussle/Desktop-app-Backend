@@ -80,6 +80,16 @@ export const getDashboardStats = async (_req: Request, res: Response, next: Next
       ? (usersWithModels / totalUsers) * 100 
       : 0;
 
+    // Get free users (no active subscription)
+    const freeUsers = await User.countDocuments({
+      subscription_status: { $in: ['expired', 'cancelled'] }
+    });
+
+    // Get paid users (active or trial subscription)
+    const paidUsers = await User.countDocuments({
+      subscription_status: { $in: ['active', 'trial'] }
+    });
+
     res.json({
       data: {
         totalUsers,
@@ -89,6 +99,8 @@ export const getDashboardStats = async (_req: Request, res: Response, next: Next
         offlineModelUsagePercent: Math.round(offlineModelUsagePercent),
         userGrowth: Math.round(userGrowth * 10) / 10,
         revenueGrowth: Math.round(revenueGrowth * 10) / 10,
+        freeUsers,
+        paidUsers,
       }
     });
   } catch (error) {
@@ -256,6 +268,56 @@ export const getRevenueChart = async (req: Request, res: Response, next: NextFun
       value: item.total,
       label: `$${item.total.toFixed(2)}`
     }));
+
+    res.json({
+      data: chartData
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get User Activity Chart Data
+ * Shows active vs inactive users based on lastSeen field
+ */
+export const getUserActivityChart = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const days = parseInt(req.query.days as string) || 30;
+    
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    // Get daily active/inactive user counts
+    const chartData = [];
+    const totalUsers = await User.countDocuments();
+
+    for (let i = 0; i < days; i++) {
+      const currentDate = new Date();
+      currentDate.setDate(currentDate.getDate() - (days - i - 1));
+      currentDate.setHours(0, 0, 0, 0);
+      
+      const nextDate = new Date(currentDate);
+      nextDate.setDate(nextDate.getDate() + 1);
+
+      // Count users who logged in on this specific day
+      const activeUsers = await User.countDocuments({
+        lastSeen: {
+          $gte: currentDate,
+          $lt: nextDate
+        }
+      });
+
+      const inactiveUsers = totalUsers - activeUsers;
+
+      chartData.push({
+        date: currentDate.toISOString().split('T')[0],
+        activeUsers,
+        inactiveUsers,
+        activeLabel: `${activeUsers} active`,
+        inactiveLabel: `${inactiveUsers} inactive`
+      });
+    }
 
     res.json({
       data: chartData

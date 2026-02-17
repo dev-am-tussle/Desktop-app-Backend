@@ -321,6 +321,38 @@ export const changeAdminPassword = async (req: Request, res: Response, next: Nex
   }
 };
 
+/**
+ * Create Admin
+ * Allows an authenticated admin to create another admin/support user
+ */
+export const createAdmin = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { name, email, password, role = 'admin', status = 'active' } = req.body;
+
+    const normalizedEmail = email.toLowerCase();
+
+    const existingAdmin = await Admin.findOne({ email: normalizedEmail });
+    if (existingAdmin) {
+      throw new AppError('Admin with this email already exists', 409, 'ADMIN_EXISTS');
+    }
+
+    const admin = await Admin.create({
+      name,
+      email: normalizedEmail,
+      password,
+      role,
+      status,
+    });
+
+    res.status(201).json({
+      data: admin,
+      message: 'Admin created successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ============================================
 // ENTITLEMENT DEFINITION MANAGEMENT
 // ============================================

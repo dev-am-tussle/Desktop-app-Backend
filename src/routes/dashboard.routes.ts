@@ -4,6 +4,7 @@ import {
   getRecentActivity,
   getSignupsChart,
   getRevenueChart,
+  getUserActivityChart,
 } from '../controllers/dashboard.controller';
 import { authenticateToken, requireRole } from '../middleware/auth';
 import { readLimiter } from '../middleware/rateLimiter';
@@ -56,6 +57,18 @@ router.get(
   authenticateToken,
   requireRole(['admin']),
   getRevenueChart
+);
+
+/**
+ * GET /dashboard/charts/user-activity
+ * Get user activity chart data (active/inactive users)
+ */
+router.get(
+  '/charts/user-activity',
+  readLimiter,
+  authenticateToken,
+  requireRole(['admin']),
+  getUserActivityChart
 );
 
 export default router;

@@ -32,6 +32,7 @@ export const getUsers = async (req: Request, res: Response, next: NextFunction) 
     const [users, total] = await Promise.all([
       User.find(filter)
         .select('-password')
+        .populate('plan_id')
         .sort({ _id: -1 })
         .skip(skip)
         .limit(limit)
@@ -39,8 +40,37 @@ export const getUsers = async (req: Request, res: Response, next: NextFunction) 
       User.countDocuments(filter),
     ]);
 
+    // Get all user IDs to check for coupon redemptions
+    const userIds = users.map(u => u._id);
+    
+    // Fetch coupon redemptions for these users in bulk
+    const couponRedemptions = await CouponRedemption.find({
+      user_id: { $in: userIds }
+    }).select('user_id').lean();
+    
+    // Create a Set of user IDs who have redeemed coupons
+    const couponUserIds = new Set(couponRedemptions.map(cr => cr.user_id.toString()));
+
+    // Add access_type to each user
+    const usersWithAccessType = users.map(user => {
+      let access_type = 'free';
+      
+      if (user.stripeSubscriptionId) {
+        access_type = 'stripe';
+      } else if (couponUserIds.has(user._id.toString())) {
+        access_type = 'coupon';
+      } else if (user.subscription_status === 'trial') {
+        access_type = 'trial';
+      }
+      
+      return {
+        ...user,
+        access_type,
+      };
+    });
+
     res.json({
-      data: users,
+      data: usersWithAccessType,
       meta: {
         page,
         limit,

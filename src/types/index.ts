@@ -140,6 +140,8 @@ export interface DashboardStats {
   offlineModelUsagePercent: number;
   userGrowth: number;
   revenueGrowth: number;
+  freeUsers: number;
+  paidUsers: number;
 }
 
 export interface RecentActivity {
