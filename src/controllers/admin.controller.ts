@@ -525,7 +525,31 @@ export const deleteEntitlementDefinition = async (req: Request, res: Response, n
  */
 export const createPlanWithEntitlements = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { plan: planPayload, entitlements } = req.body;
+    let { plan: planPayload, entitlements } = req.body;
+
+    // ============ PAYLOAD NORMALIZATION ============
+    // If frontend sends "prices" object (new structure), convert it to service structure
+    if (planPayload && planPayload.prices) {
+      const prices = planPayload.prices;
+      
+      // 1. Find Base Amount (Look for is_base: true or default to AUD)
+      const monthlyPrices = prices.monthly || {};
+      const yearlyPrices = prices.yearly || {};
+      
+      const baseCurrency = Object.keys(monthlyPrices).find(curr => monthlyPrices[curr].is_base) || 'AUD';
+      
+      planPayload.base_amount_monthly = monthlyPrices[baseCurrency]?.amount || 0;
+      planPayload.base_amount_yearly = yearlyPrices[baseCurrency]?.amount || undefined;
+      
+      // 2. Generate Target Regions
+      if (!planPayload.target_regions) {
+        planPayload.target_regions = Object.keys(monthlyPrices).map(currency => ({
+          currency,
+          custom_amount_monthly: monthlyPrices[currency].amount,
+          custom_amount_yearly: yearlyPrices[currency]?.amount
+        }));
+      }
+    }
 
     // ============ VALIDATION ============
     if (!planPayload) {

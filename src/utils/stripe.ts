@@ -81,15 +81,15 @@ export const archiveStripeProduct = async (productId: string): Promise<Stripe.Pr
  */
 export const createStripePrice = async (priceData: {
   productId: string;
-  amount: number; // Amount in base currency (e.g., 499 for ₹499)
+  amount: number; // Amount in smallest currency unit (e.g., 1999 for $19.99)
   currency: string;
   billingPeriod: 'monthly' | 'yearly' | 'one-time';
 }): Promise<Stripe.Price> => {
   try {
     const { productId, amount, currency, billingPeriod } = priceData;
     
-    // Convert amount to smallest currency unit (paise for INR, cents for USD)
-    const unitAmount = Math.round(amount * 100);
+    // Amount is already in smallest unit (cents/paise), so we just round to ensure integer
+    const unitAmount = Math.round(amount);
     
     const priceConfig: Stripe.PriceCreateParams = {
       product: productId,

@@ -235,15 +235,14 @@ router.post(
     body('plan.slug').notEmpty().isString().withMessage('Plan slug is required'),
     body('plan.description').optional().isString().withMessage('Description must be a string'),
     
-    // Multi-currency pricing validation
-    body('plan.base_amount_monthly').notEmpty().isInt({ min: 0 }).withMessage('Base monthly amount is required and must be >= 0'),
-    body('plan.base_amount_yearly').optional().isInt({ min: 0 }).withMessage('Base yearly amount must be >= 0 when provided'),
+    // Multi-currency pricing validation (Leniency for prices object)
+    body('plan.base_amount_monthly').optional().isInt({ min: 0 }),
+    body('plan.base_amount_yearly').optional().isInt({ min: 0 }),
+    body('plan.target_regions').optional().isArray(),
     
-    // Target regions validation
-    body('plan.target_regions').isArray().withMessage('Target regions must be an array'),
-    body('plan.target_regions.*.currency').notEmpty().isString().withMessage('Each region must have a currency'),
-    body('plan.target_regions.*.custom_amount_monthly').optional().isInt({ min: 0 }).withMessage('Custom amount must be >= 0'),
-    body('plan.target_regions.*.custom_amount_yearly').optional().isInt({ min: 0 }).withMessage('Custom yearly amount must be >= 0'),
+    // New Prices Object Validation (Frontend structure)
+    body('plan.prices').optional().isObject().withMessage('Prices must be an object'),
+    body('plan.prices.monthly').optional().isObject().withMessage('Monthly prices must be an object'),
     
     // Features and metadata
     body('plan.features').optional().isArray().withMessage('Features must be an array'),

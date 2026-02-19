@@ -309,7 +309,12 @@ export function getCacheStats(): { isCached: boolean; age?: number; source?: str
 
 /**
  * Get supported currencies
+ * Priority: Cache -> Fallback list
  */
 export function getSupportedCurrencies(): string[] {
-  return Object.keys(FALLBACK_FX_RATES);
+  if (fxRateCache && fxRateCache.rates) {
+    return Object.keys(fxRateCache.rates);
+  }
+  // Return a sensible default list if cache is empty
+  return ['AUD', 'USD', 'INR', 'GBP', 'EUR', 'CAD', 'SGD', 'JPY', 'NZD'];
 }
