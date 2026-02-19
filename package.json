@@ -10,7 +10,9 @@
     "lint": "eslint . --ext .ts",
     "test": "jest --passWithNoTests",
     "create-admin": "node scripts/createAdmin.js",
-    "create-admin:ts": "ts-node scripts/createAdmin.ts"
+    "create-admin:ts": "ts-node scripts/createAdmin.ts",
+    "seed:fx-rates": "node scripts/seedFXRates.js",
+    "migrate:fx-indexes": "node scripts/migrateFXRateIndexes.js"
   },
   "keywords": [
     "admin",

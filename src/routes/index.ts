@@ -18,6 +18,7 @@ import providersRoutes from './providers.routes';
 import chatRoutes from './chat.routes';
 import entitlementsRoutes from './entitlements.routes';
 import couponsRoutes from './coupons.routes';
+import fxRatesRoutes from './fxRates.routes';
 // Note: webhookRoutes mounted separately in server.ts before JSON parser
 
 const router = Router();
@@ -42,6 +43,8 @@ router.use('/licenses', licensesRoutes); // License management routes
 router.use('/models', modelsRoutes); // Model management routes
 router.use('/audit-logs', auditLogsRoutes); // Audit logs routes
 router.use('/payments', paymentsRoutes); // Payment management routes
+router.use('/admin/fx-rates', fxRatesRoutes); // FX rates management routes (admin protected)
+router.use('/fx-rates', fxRatesRoutes); // FX rates public endpoint (no auth required)
 // Note: /webhook routes mounted separately in server.ts (before JSON parser for raw body)
 router.use('/public', publicRoutes); // Public desktop app routes
 router.use('/dashboard', dashboardRoutes); // Dashboard analytics routes

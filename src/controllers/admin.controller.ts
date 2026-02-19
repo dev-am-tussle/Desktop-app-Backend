@@ -499,140 +499,205 @@ export const deleteEntitlementDefinition = async (req: Request, res: Response, n
 };
 
 /**
- * Create Plan with Entitlements
+ * Create Plan with Entitlements (MULTI-CURRENCY)
  * POST /api/admin/plans/create-with-entitlements
- * Creates a subscription plan and assigns entitlements in one transaction
+ * Creates a subscription plan with multi-currency pricing and assigns entitlements
+ * 
+ * NEW PAYLOAD STRUCTURE:
+ * {
+ *   "plan": {
+ *     "name": "pro",
+ *     "display_name": "Pro Plan",
+ *     "slug": "pro-plan",
+ *     "base_amount_monthly": 1999,    // AUD in cents
+ *     "base_amount_yearly": 19999,
+ *     "target_regions": [
+ *       { "currency": "AUD", "custom_amount_monthly": 1999 },
+ *       { "currency": "USD" },  // Will auto-convert
+ *       { "currency": "INR", "custom_amount_monthly": 129900 }
+ *     ],
+ *     "features": [...],
+ *     "category": "personal",
+ *     "is_contact_sales": false
+ *   },
+ *   "entitlements": [...]
+ * }
  */
 export const createPlanWithEntitlements = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { plan, entitlements } = req.body;
+    const { plan: planPayload, entitlements } = req.body;
 
-    // Validate payload structure
-    if (!plan || !entitlements || !Array.isArray(entitlements)) {
-      throw new AppError('Invalid payload. Required: { plan: {...}, entitlements: [...] }', 400, 'INVALID_PAYLOAD');
+    // ============ VALIDATION ============
+    if (!planPayload) {
+      throw new AppError('Plan details are required', 400, 'INVALID_PAYLOAD');
     }
 
-    // CHECK FOR DUPLICATE PLAN BEFORE STRIPE CREATION
+    // Import the service here to avoid circular dependency
+    const {
+      validateCreatePlanPayload,
+      generatePriceBreakdown,
+      createStripePrices,
+      generatePricingMetadata,
+    } = await import('../services/priceConversion.service');
+
+    // Validate admin payload
+    const validation = await validateCreatePlanPayload(planPayload);
+    if (!validation.valid) {
+      throw new AppError(`Validation failed: ${validation.errors.join('; ')}`, 400, 'VALIDATION_FAILED');
+    }
+
+    // Check for duplicate plan
     const existingPlan = await SubscriptionPlan.findOne({
-      $or: [{ name: plan.name }, { slug: plan.slug }]
+      $or: [{ name: planPayload.name }, { slug: planPayload.slug }],
     });
-
     if (existingPlan) {
-      const field = existingPlan.name === plan.name ? 'Name' : 'Slug';
-      throw new AppError(`A plan with this ${field} already exists. Please use a unique ${field.toLowerCase()}.`, 400, 'DUPLICATE_PLAN');
+      throw new AppError('A plan with this name or slug already exists', 400, 'DUPLICATE_PLAN');
     }
 
-    // STEP 1: Create Stripe Product and Prices (except contact-sales plans)
-    let stripeProductId = null;
-    let stripePriceMonthlyId = null;
-    let stripePriceYearlyId = null;
+    // ============ GENERATE PRICING ============
+    console.log('💰 Generating multi-currency pricing...');
+    const { breakdown, warnings } = await generatePriceBreakdown(planPayload);
+    
+    if (warnings.length > 0) {
+      console.warn('⚠️  Pricing warnings:', warnings);
+    }
 
-    if (!plan.is_contact_sales) {
-      console.log('🔵 Creating Stripe product...');
-      
-      // Create Stripe Product (for all plans including free)
+    const supportedCurrencies = breakdown.map(b => b.currency);
+    console.log(`✅ Generated prices for: ${supportedCurrencies.join(', ')}`);
+
+    // ============ CREATE STRIPE PRODUCT ============
+    let stripeProductId = null;
+    let stripePriceIds: { monthly: Record<string, string>; yearly: Record<string, string> } = { 
+      monthly: {}, 
+      yearly: {} 
+    };
+    let stripeErrors: { currency: string; error: string }[] = [];
+
+    if (!planPayload.is_contact_sales) {
+      console.log('🔵 Creating Stripe Product...');
       const stripeProduct = await stripeService.createStripeProduct({
-        name: plan.display_name,
-        description: plan.description || `${plan.display_name} Subscription`,
+        name: planPayload.display_name,
+        description: planPayload.description || `${planPayload.display_name} Subscription`,
       });
       stripeProductId = stripeProduct.id;
       console.log(`✅ Stripe Product created: ${stripeProductId}`);
 
-      // Create Monthly Price (only if price_monthly is defined)
-      if (plan.price_monthly !== undefined && plan.price_monthly !== null) {
-        console.log('🔵 Creating monthly price...');
-        const monthlyPrice = await stripeService.createStripePrice({
-          productId: stripeProductId,
-          amount: plan.price_monthly,
-          currency: plan.currency || 'AUD',
-          billingPeriod: 'monthly',
-        });
-        stripePriceMonthlyId = monthlyPrice.id;
-        console.log(`✅ Monthly Price created: ${stripePriceMonthlyId} ($${plan.price_monthly})`);
-      }
+      // ============ CREATE STRIPE PRICES (MULTI-CURRENCY) ============
+      console.log(`🔵 Creating Stripe prices for ${supportedCurrencies.length} currencies...`);
+      const priceCreationResult = await createStripePrices(stripeProductId, breakdown);
+      stripePriceIds = {
+        monthly: priceCreationResult.monthly,
+        yearly: priceCreationResult.yearly || {},
+      };
+      stripeErrors = priceCreationResult.errors;
 
-      // Create Yearly Price (only if price_yearly is defined and > 0)
-      if (plan.price_yearly !== undefined && plan.price_yearly !== null && plan.price_yearly > 0) {
-        console.log('🔵 Creating yearly price...');
-        const yearlyPrice = await stripeService.createStripePrice({
-          productId: stripeProductId,
-          amount: plan.price_yearly,
-          currency: plan.currency || 'AUD',
-          billingPeriod: 'yearly',
-        });
-        stripePriceYearlyId = yearlyPrice.id;
-        console.log(`✅ Yearly Price created: ${stripePriceYearlyId} ($${plan.price_yearly})`);
+      const successCount = Object.keys(priceCreationResult.monthly).length;
+      console.log(`✅ Created ${successCount} Stripe prices`);
+
+      if (stripeErrors.length > 0) {
+        console.warn(`⚠️  Failed to create prices for: ${stripeErrors.map(e => e.currency).join(', ')}`);
       }
     } else {
       console.log('⏭️  Skipping Stripe integration (contact sales plan)');
     }
 
-    // STEP 2: Create Subscription Plan in Database
-    console.log('📋 Creating subscription plan in database...');
-    const newPlan = await SubscriptionPlan.create({
-      name: plan.name,
-      display_name: plan.display_name,
-      slug: plan.slug,
-      description: plan.description || '',
-      features: plan.features || [],
-      category: plan.category || 'personal',
-      price_monthly: plan.price_monthly || 0,
-      price_yearly: plan.price_yearly || 0,
-      currency: plan.currency || 'USD',
-      is_contact_sales: plan.is_contact_sales || false,
-      status: plan.status || 'active',
-      sort_order: plan.sort_order || 0,
-      stripe_product_id: stripeProductId,
-      stripe_price_monthly_id: stripePriceMonthlyId,
-      stripe_price_yearly_id: stripePriceYearlyId,
-    });
-    console.log(`✅ Plan created: ${newPlan.display_name} (ID: ${newPlan._id})`);
+    // ============ BUILD PRICES OBJECT ============
+    const pricesObject: any = {
+      monthly: {},
+    };
 
-    // STEP 3: Create Plan Entitlements
-    console.log(`📋 Creating ${entitlements.length} entitlements...`);
-    const planEntitlements = [];
-    let successCount = 0;
-    let errorCount = 0;
+    for (const pricing of breakdown) {
+      pricesObject.monthly[pricing.currency] = {
+        amount: pricing.monthly.amount,
+        stripe_price_id: stripePriceIds.monthly[pricing.currency] || null,
+        source: pricing.monthly.source,
+      };
 
-    for (const ent of entitlements) {
-      try {
-        // Verify entitlement definition exists
-        const definition = await EntitlementDefinition.findOne({ key: ent.entitlement_key });
-        if (!definition) {
-          console.warn(`⚠️  Entitlement key not found: ${ent.entitlement_key}`);
-          errorCount++;
-          continue;
-        }
-
-        // Create plan entitlement
-        const planEntitlement = await PlanEntitlement.create({
-          plan_id: newPlan._id,
-          entitlement_key: ent.entitlement_key,
-          value: ent.value,
-        });
-
-        planEntitlements.push(planEntitlement);
-        successCount++;
-      } catch (error: any) {
-        console.error(`❌ Error creating entitlement ${ent.entitlement_key}:`, error.message);
-        errorCount++;
+      if (pricing.yearly) {
+        if (!pricesObject.yearly) pricesObject.yearly = {};
+        pricesObject.yearly[pricing.currency] = {
+          amount: pricing.yearly.amount,
+          stripe_price_id: stripePriceIds.yearly[pricing.currency] || null,
+          source: pricing.yearly.source,
+        };
       }
     }
 
-    console.log(`✅ Entitlements created: ${successCount} success, ${errorCount} errors`);
+    // ============ CREATE PLAN IN DATABASE ============
+    console.log('📋 Creating subscription plan in database...');
+    const newPlan = await SubscriptionPlan.create({
+      name: planPayload.name,
+      display_name: planPayload.display_name,
+      slug: planPayload.slug,
+      description: planPayload.description || '',
+      features: planPayload.features || [],
+      category: planPayload.category || 'personal',
+      
+      // Multi-currency structure (REQUIRED)
+      prices: pricesObject,
+      pricing_metadata: generatePricingMetadata(planPayload, supportedCurrencies),
+      
+      is_contact_sales: planPayload.is_contact_sales || false,
+      status: 'active',
+      sort_order: planPayload.sort_order || 0,
+      stripe_product_id: stripeProductId,
+    });
+    console.log(`✅ Plan created: ${newPlan.display_name} (ID: ${newPlan._id})`);
 
-    // STEP 4: Return response
+    // ============ CREATE ENTITLEMENTS ============
+    let planEntitlements: any[] = [];
+    let entitlementSummary = { total: 0, created: 0, failed: 0 };
+
+    if (entitlements && Array.isArray(entitlements)) {
+      console.log(`📋 Creating ${entitlements.length} entitlements...`);
+      entitlementSummary.total = entitlements.length;
+
+      for (const ent of entitlements) {
+        try {
+          const definition = await EntitlementDefinition.findOne({ key: ent.entitlement_key });
+          if (!definition) {
+            console.warn(`⚠️  Entitlement not found: ${ent.entitlement_key}`);
+            entitlementSummary.failed++;
+            continue;
+          }
+
+          const planEntitlement = await PlanEntitlement.create({
+            plan_id: newPlan._id,
+            entitlement_key: ent.entitlement_key,
+            value: ent.value,
+          });
+          planEntitlements.push(planEntitlement);
+          entitlementSummary.created++;
+        } catch (error: any) {
+          console.error(`❌ Error creating entitlement ${ent.entitlement_key}:`, error.message);
+          entitlementSummary.failed++;
+        }
+      }
+      console.log(`✅ Entitlements: ${entitlementSummary.created} created, ${entitlementSummary.failed} failed`);
+    }
+
+    // ============ RESPONSE ============
     res.status(201).json({
       success: true,
-      message: 'Plan with entitlements created successfully',
+      message: 'Plan with multi-currency pricing created successfully',
       data: {
-        plan: newPlan,
-        entitlements: planEntitlements,
-        summary: {
-          total_entitlements: entitlements.length,
-          created: successCount,
-          failed: errorCount,
+        plan: {
+          id: newPlan._id,
+          name: newPlan.name,
+          display_name: newPlan.display_name,
+          slug: newPlan.slug,
+          prices: newPlan.prices,
+          pricing_metadata: newPlan.pricing_metadata,
+          stripe_product_id: newPlan.stripe_product_id,
+          stripe_prices_created: Object.keys(stripePriceIds.monthly).length,
+          status: newPlan.status,
         },
+        pricing_breakdown: breakdown,
+        entitlements: {
+          summary: entitlementSummary,
+          created: planEntitlements,
+        },
+        warnings: [...warnings, ...stripeErrors.map(e => `${e.currency}: ${e.error}`)],
       },
     });
   } catch (error) {

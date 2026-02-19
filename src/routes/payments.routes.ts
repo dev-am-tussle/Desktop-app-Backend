@@ -52,14 +52,25 @@ const refundPaymentValidation = [
 
 /**
  * POST /payments/create-checkout-session
- * Create Stripe checkout session for desktop app
+ * Create Stripe checkout session for desktop app with multi-currency support
  * Public (authenticated user) - Desktop app calls this to initiate payment
+ * 
+ * BODY:
+ * {
+ *   "planId": "507f1f77bcf86cd799439011",
+ *   "billingCycle": "monthly" | "yearly",
+ *   "currency": "AUD"  // Optional - defaults to AUD
+ * }
  */
 router.post(
   '/create-checkout-session',
   authenticateToken,
   writeLimiter,
-  [body('planId').isMongoId().withMessage('Valid plan ID is required')],
+  [
+    body('planId').isMongoId().withMessage('Valid plan ID is required'),
+    body('billingCycle').optional().isIn(['monthly', 'yearly']).withMessage('Billing cycle must be monthly or yearly'),
+    body('currency').optional().isString().isLength({ min: 3, max: 3 }).withMessage('Currency must be a 3-letter code (e.g., AUD, USD)'),
+  ],
   validate,
   paymentsController.createCheckoutSession
 );

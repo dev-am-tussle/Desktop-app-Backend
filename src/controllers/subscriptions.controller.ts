@@ -21,11 +21,26 @@ import EntitlementDefinition from '../models/EntitlementDefinition.model';
 
 /**
  * Get All Subscription Plans
- * Returns plans with entitlements grouped by category
+ * Returns plans with entitlements and localized pricing (multi-currency)
+ * 
+ * Optional Query Parameters:
+ * - status: 'active' | 'archived'
+ * - category: 'personal' | 'business' | 'enterprise'
+ * - currency: Override currency detection (e.g., 'USD', 'INR')
+ * 
+ * Response includes:
+ * - Full plan details
+ * - Localized prices based on detected region (or requested currency)
+ * - Entitlements grouped by category
+ * - Pricing source tracking (base/manual/auto_converted)
  */
 export const getSubscriptionPlans = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { status, category } = req.query;
+    const { status, category, currency: requestedCurrency } = req.query;
+    
+    // Get user's currency from region detection middleware, or use requested currency
+    const userRegion = (req as any).user_region || {};
+    const userCurrency = (requestedCurrency as string) || userRegion.currency || 'AUD';
 
     const filter: any = {};
     if (status) filter.status = status;
@@ -33,7 +48,7 @@ export const getSubscriptionPlans = async (req: Request, res: Response, next: Ne
 
     const plans = await SubscriptionPlan.find(filter);
 
-    // Sort in memory by sort_order (Azure Cosmos DB doesn't have index on this field)
+    // Sort in memory by sort_order
     plans.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
     // Fetch entitlements for all plans
@@ -72,8 +87,28 @@ export const getSubscriptionPlans = async (req: Request, res: Response, next: Ne
           }
         });
 
+        // Extract localized pricing for requested currency
+        const monthlyPrice = plan.prices?.monthly?.[userCurrency];
+        const yearlyPrice = plan.prices?.yearly?.[userCurrency];
+
+        // Build localized pricing response
+        const localizedPricing = {
+          currency: userCurrency,
+          monthly: monthlyPrice ? {
+            amount: monthlyPrice.amount,
+            source: monthlyPrice.source,
+          } : null,
+          yearly: yearlyPrice ? {
+            amount: yearlyPrice.amount,
+            source: yearlyPrice.source,
+          } : null,
+          region_code: userRegion.country_code,
+          all_available_currencies: Object.keys(plan.prices?.monthly || {}),
+        };
+
         return {
           ...plan.toJSON(),
+          pricing: localizedPricing,
           entitlements: groupedEntitlements,
           entitlements_count: planEntitlements.length,
         };
@@ -82,6 +117,11 @@ export const getSubscriptionPlans = async (req: Request, res: Response, next: Ne
 
     res.json({
       data: plansWithEntitlements,
+      meta: {
+        detected_currency: userCurrency,
+        detected_region: userRegion.country_code,
+        total_plans: plansWithEntitlements.length,
+      },
     });
   } catch (error) {
     next(error);

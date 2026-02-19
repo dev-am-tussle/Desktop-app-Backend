@@ -6,6 +6,21 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
  * Features/entitlements moved to PlanEntitlement model
  */
 
+export interface IPriceData {
+  amount: number;              // Amount in cents (1999 = $19.99)
+  stripe_price_id: string;     // Stripe price object ID
+  source: 'base' | 'manual' | 'auto_converted'; // How price was set
+}
+
+export interface IPricingMetadata {
+  base_currency: string;       // "AUD" - always base currency
+  base_amount_monthly: number; // Monthly price in cents
+  base_amount_yearly?: number; // Yearly price in cents (optional)
+  supported_currencies: string[]; // List of supported currencies
+  conversion_applied_on: Date; // When conversion was last applied
+  conversion_source: string;   // "stripe_rates", "manual_input", etc.
+}
+
 export interface ISubscriptionPlan extends Document {
   _id: mongoose.Types.ObjectId;
   name: string;                      // "free", "pro", "business", "enterprise"
@@ -15,16 +30,17 @@ export interface ISubscriptionPlan extends Document {
   features: string[];                // Marketing features list
   category: 'personal' | 'business' | 'enterprise'; // Plan category for filtering
   
-  // Pricing
-  price_monthly: number;             // Monthly price (0 for free)
-  price_yearly?: number;             // Annual price (optional)
-  currency: string;                  // "AUD"
-  is_contact_sales: boolean;         // For Enterprise plan
+  // Multi-Currency Pricing (REQUIRED)
+  prices: {
+    monthly: Record<string, IPriceData>;  // { AUD: {...}, USD: {...}, INR: {...} }
+    yearly?: Record<string, IPriceData>;  // Same structure for yearly
+  };
   
-  // Stripe Integration
-  stripe_product_id?: string;
-  stripe_price_monthly_id?: string;
-  stripe_price_yearly_id?: string;
+  // Pricing Metadata (REQUIRED)
+  pricing_metadata: IPricingMetadata;
+  
+  is_contact_sales: boolean;         // For Enterprise plan
+  stripe_product_id: string;         // Stripe product ID
   
   // Meta
   status: 'active' | 'archived';
@@ -78,23 +94,39 @@ const SubscriptionPlanSchema: Schema<ISubscriptionPlan> = new Schema(
       default: 'personal',
       index: true,
     },
-    // Pricing
-    price_monthly: {
-      type: Number,
-      required: [true, 'Monthly price is required'],
-      min: [0, 'Price cannot be negative'],
+    // Multi-Currency Pricing Structure (REQUIRED)
+    prices: {
+      type: Schema.Types.Mixed,
+      required: [true, 'Prices object is required'],
+      validate: {
+        validator: function(prices: any) {
+          if (!prices || !prices.monthly || typeof prices.monthly !== 'object') return false;
+          for (const [_currency, priceData] of Object.entries(prices.monthly)) {
+            const p = priceData as any;
+            if (!p || typeof p !== 'object') return false;
+            if (typeof p.amount !== 'number' || p.amount < 0) return false;
+            if (typeof p.stripe_price_id !== 'string') return false;
+            if (!['base', 'manual', 'auto_converted'].includes(p.source)) return false;
+          }
+          return true;
+        },
+        message: 'Prices must have valid structure with amount, stripe_price_id, and source'
+      }
     },
-    price_yearly: {
-      type: Number,
-      default: null,
-      min: [0, 'Price cannot be negative'],
-    },
-    currency: {
-      type: String,
-      required: [true, 'Currency is required'],
-      uppercase: true,
-      match: [/^[A-Z]{3}$/, 'Currency must be a valid ISO 4217 code (e.g., AUD)'],
-      default: 'AUD',
+    // Pricing Metadata (REQUIRED - tracks pricing source and conversion details)
+    pricing_metadata: {
+      type: Schema.Types.Mixed,
+      required: [true, 'Pricing metadata is required'],
+      validate: {
+        validator: function(metadata: any) {
+          if (!metadata || typeof metadata !== 'object') return false;
+          if (metadata.base_currency !== 'AUD') return false;
+          if (typeof metadata.base_amount_monthly !== 'number') return false;
+          if (!Array.isArray(metadata.supported_currencies)) return false;
+          return true;
+        },
+        message: 'Pricing metadata must be valid'
+      }
     },
     is_contact_sales: {
       type: Boolean,
@@ -103,17 +135,7 @@ const SubscriptionPlanSchema: Schema<ISubscriptionPlan> = new Schema(
     // Stripe Integration
     stripe_product_id: {
       type: String,
-      default: null,
-      index: true,
-    },
-    stripe_price_monthly_id: {
-      type: String,
-      default: null,
-      index: true,
-    },
-    stripe_price_yearly_id: {
-      type: String,
-      default: null,
+      required: [true, 'Stripe product ID is required for paid plans'],
       index: true,
     },
     // Meta

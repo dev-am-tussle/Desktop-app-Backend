@@ -201,21 +201,61 @@ router.delete(
 
 /**
  * POST /admin/plans/create-with-entitlements
- * Create subscription plan with entitlements in one request
+ * Create subscription plan with MULTI-CURRENCY entitlements in one request
+ * 
+ * PAYLOAD STRUCTURE:
+ * {
+ *   "plan": {
+ *     "name": "pro",
+ *     "display_name": "Pro Plan",
+ *     "slug": "pro-plan",
+ *     "base_amount_monthly": 1999,    // AUD in cents
+ *     "base_amount_yearly": 19999,
+ *     "target_regions": [
+ *       { "currency": "AUD", "custom_amount_monthly": 1999 },
+ *       { "currency": "USD" },  // Will auto-convert
+ *       { "currency": "INR", "custom_amount_monthly": 129900 }
+ *     ],
+ *     "features": [...],
+ *     "category": "personal",
+ *     "is_contact_sales": false
+ *   },
+ *   "entitlements": [...]
+ * }
  */
 router.post(
   '/plans/create-with-entitlements',
   writeLimiter,
   authenticateAdminToken,
   [
+    // Plan object validation
     body('plan').notEmpty().withMessage('Plan object is required'),
-    body('plan.name').notEmpty().withMessage('Plan name is required'),
-    body('plan.display_name').notEmpty().withMessage('Plan display name is required'),
-    body('plan.slug').notEmpty().withMessage('Plan slug is required'),
+    body('plan.name').notEmpty().isString().withMessage('Plan name is required and must be a string'),
+    body('plan.display_name').notEmpty().isString().withMessage('Plan display name is required'),
+    body('plan.slug').notEmpty().isString().withMessage('Plan slug is required'),
+    body('plan.description').optional().isString().withMessage('Description must be a string'),
+    
+    // Multi-currency pricing validation
+    body('plan.base_amount_monthly').notEmpty().isInt({ min: 0 }).withMessage('Base monthly amount is required and must be >= 0'),
+    body('plan.base_amount_yearly').optional().isInt({ min: 0 }).withMessage('Base yearly amount must be >= 0 when provided'),
+    
+    // Target regions validation
+    body('plan.target_regions').isArray().withMessage('Target regions must be an array'),
+    body('plan.target_regions.*.currency').notEmpty().isString().withMessage('Each region must have a currency'),
+    body('plan.target_regions.*.custom_amount_monthly').optional().isInt({ min: 0 }).withMessage('Custom amount must be >= 0'),
+    body('plan.target_regions.*.custom_amount_yearly').optional().isInt({ min: 0 }).withMessage('Custom yearly amount must be >= 0'),
+    
+    // Features and metadata
     body('plan.features').optional().isArray().withMessage('Features must be an array'),
     body('plan.features.*').optional().isString().withMessage('Each feature must be a string'),
     body('plan.category').optional().isIn(['personal', 'business', 'enterprise']).withMessage('Category must be personal, business, or enterprise'),
+    body('plan.is_contact_sales').optional().isBoolean().withMessage('is_contact_sales must be a boolean'),
+    body('plan.sort_order').optional().isInt({ min: 0 }).withMessage('Sort order must be a non-negative integer'),
+    
+    // Entitlements validation
     body('entitlements').isArray().withMessage('Entitlements must be an array'),
+    body('entitlements.*.entitlement_key').notEmpty().isString().withMessage('Each entitlement must have a key'),
+    body('entitlements.*.value').notEmpty().withMessage('Each entitlement must have a value'),
   ],
   validate,
   createPlanWithEntitlements

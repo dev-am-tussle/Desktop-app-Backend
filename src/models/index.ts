@@ -25,6 +25,9 @@ import EntitlementCache from './EntitlementCache.model';
 import { Coupon } from './Coupon.model';
 import { CouponRedemption } from './CouponRedemption.model';
 
+// NEW: FX Rates Management
+import FXRate from './FXRate.model';
+
 // Export all models
 export {
   User,
@@ -45,6 +48,8 @@ export {
   EntitlementCache,
   Coupon,
   CouponRedemption,
+  // FX Rates Management
+  FXRate,
 };
 
 // Export types
@@ -67,6 +72,9 @@ export type { IUserEntitlementOverride } from './UserEntitlementOverride.model';
 export type { IEntitlementCache } from './EntitlementCache.model';
 export type { ICoupon } from './Coupon.model';
 export type { ICouponRedemption } from './CouponRedemption.model';
+
+// FX Rates Management Types
+export type { IFXRate } from './FXRate.model';
 
 // Default export - all models as object
 export default {

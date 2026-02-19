@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import compression from 'compression';
 import dotenv from 'dotenv';
 import connectDatabase from './config/database';
+import { detectRegion } from './middleware/regionDetection';
 import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
@@ -62,6 +63,11 @@ app.use((req, _res, next) => {
   console.log(`📍 ${req.method} ${req.path}`);
   next();
 });
+
+// ============================================
+// REGION DETECTION - Detect user's country/currency from IP
+// ============================================
+app.use(detectRegion);
 
 // ============================================
 // ROUTES

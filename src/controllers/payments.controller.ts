@@ -197,12 +197,20 @@ export const deletePayment = async (req: Request, res: Response, next: NextFunct
 
 /**
  * Create Stripe Checkout Session
+ * POST /api/payments/checkout-session
  * Desktop app calls this to initiate payment
  * Returns checkout URL that desktop app opens in browser
+ * 
+ * BODY:
+ * {
+ *   "planId": "507f1f77bcf86cd799439011",
+ *   "billingCycle": "monthly" | "yearly",
+ *   "currency": "AUD"  // Optional - defaults to AUD
+ * }
  */
 export const createCheckoutSession = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { planId, billingCycle = 'monthly' } = req.body;
+    const { planId, billingCycle = 'monthly', currency = 'AUD' } = req.body;
     const userId = req.user?.userId;
 
     if (!userId) {
@@ -231,21 +239,27 @@ export const createCheckoutSession = async (req: Request, res: Response, next: N
       throw new AppError('Enterprise plans require contacting sales', 400, 'CONTACT_SALES_REQUIRED');
     }
 
-    // Determine the Price ID based on billing cycle
-    const stripePriceId = billingCycle === 'yearly' 
-      ? plan.stripe_price_yearly_id 
-      : plan.stripe_price_monthly_id;
+    // Determine the Price ID from multi-currency structure
+    const billingPeriod = billingCycle === 'yearly' ? 'yearly' : 'monthly';
+    const priceData = plan.prices[billingPeriod]?.[currency];
 
-    if (!stripePriceId) {
+    if (!priceData) {
       throw new AppError(
-        `Plan not configured for Stripe ${billingCycle} payments`, 
-        400, 
-        'STRIPE_NOT_CONFIGURED'
+        `Plan not available for ${currency} ${billingPeriod} payments`,
+        400,
+        'CURRENCY_NOT_SUPPORTED'
       );
     }
 
-    // Determine amount
-    const amount = billingCycle === 'yearly' ? (plan.price_yearly || 0) : plan.price_monthly;
+    const { amount, stripe_price_id: stripePriceId } = priceData;
+
+    if (!stripePriceId) {
+      throw new AppError(
+        `Plan not configured for Stripe ${billingPeriod} payments in ${currency}`,
+        400,
+        'STRIPE_NOT_CONFIGURED'
+      );
+    }
 
     // Create or retrieve Stripe customer
     let stripeCustomerId = user.stripeCustomerId;
@@ -279,7 +293,7 @@ export const createCheckoutSession = async (req: Request, res: Response, next: N
     
     console.log('✅ Checkout Session Created:', checkoutSession.id);
 
-    // Save payment session to database
+    // Save payment session to database (multi-currency)
     await PaymentSession.create({
       userId,
       planId,
@@ -287,8 +301,8 @@ export const createCheckoutSession = async (req: Request, res: Response, next: N
       stripeCustomerId,
       status: 'pending',
       amount,
-      currency: plan.currency,
-      metadata: { billingCycle }
+      currency,
+      metadata: { billingCycle, billingPeriod }
     });
 
     res.json({
