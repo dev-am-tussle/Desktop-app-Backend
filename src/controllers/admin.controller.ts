@@ -512,6 +512,16 @@ export const createPlanWithEntitlements = async (req: Request, res: Response, ne
       throw new AppError('Invalid payload. Required: { plan: {...}, entitlements: [...] }', 400, 'INVALID_PAYLOAD');
     }
 
+    // CHECK FOR DUPLICATE PLAN BEFORE STRIPE CREATION
+    const existingPlan = await SubscriptionPlan.findOne({
+      $or: [{ name: plan.name }, { slug: plan.slug }]
+    });
+
+    if (existingPlan) {
+      const field = existingPlan.name === plan.name ? 'Name' : 'Slug';
+      throw new AppError(`A plan with this ${field} already exists. Please use a unique ${field.toLowerCase()}.`, 400, 'DUPLICATE_PLAN');
+    }
+
     // STEP 1: Create Stripe Product and Prices (except contact-sales plans)
     let stripeProductId = null;
     let stripePriceMonthlyId = null;

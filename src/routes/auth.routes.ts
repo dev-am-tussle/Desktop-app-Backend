@@ -33,6 +33,10 @@ const registerValidation = [
     .withMessage('Password must be at least 8 characters')
     .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
     .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number'),
+  body('consent.termsAccepted')
+    .isBoolean()
+    .equals('true')
+    .withMessage('You must accept the terms and conditions'),
 ];
 
 const loginValidation = [

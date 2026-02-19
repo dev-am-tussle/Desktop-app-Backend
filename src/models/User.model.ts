@@ -33,6 +33,13 @@ export interface IUser extends Document {
     completed?: Date;
   };
   lastActivePhase?: string;
+
+  // Legal Consent
+  consent?: {
+    termsAccepted: boolean;
+    termsAcceptedAt: Date;
+    termsVersion?: string;
+  };
   
   createdAt: Date;
   updatedAt: Date;
@@ -138,6 +145,21 @@ const UserSchema: Schema<IUser> = new Schema(
       type: String,
       default: null,
       index: true,
+    },
+    // Legal Consent
+    consent: {
+      termsAccepted: { 
+        type: Boolean, 
+        default: false 
+      },
+      termsAcceptedAt: { 
+        type: Date,
+        default: null
+      },
+      termsVersion: { 
+        type: String, 
+        default: 'v1' 
+      },
     },
   },
   {

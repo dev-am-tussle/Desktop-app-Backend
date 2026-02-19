@@ -282,7 +282,7 @@ export const bulkDisableUsers = async (req: Request, res: Response, next: NextFu
  */
 export const registerUser = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, consent: consentData } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -300,6 +300,14 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
     const trialEnd = new Date();
     trialEnd.setDate(trialEnd.getDate() + 30);
 
+    // Prepare consent info
+    const now = new Date();
+    const consent = {
+      termsAccepted: consentData?.termsAccepted || false,
+      termsAcceptedAt: consentData?.termsAcceptedAt ? new Date(consentData.termsAcceptedAt) : now,
+      termsVersion: consentData?.termsVersion || 'v1',
+    }; 
+
     // Create new user with trial status and Free plan
     const user = new User({
       name,
@@ -316,6 +324,7 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
         defaultModel: 'gemma',
         offlineMode: true,
       },
+      consent,
     });
 
     await user.save();
@@ -369,6 +378,7 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
           plan: freePlan,
           trialEndsAt: user.subscription_ends_at,
           createdAt: user.createdAt,
+          consent: user.consent,
         },
         authentication: {
           sessionToken,
@@ -516,6 +526,7 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
           tags: user.tags || [],
           onboardingPhase: user.onboardingPhase,
           createdAt: user.createdAt,
+          consent: user.consent,
         },
         subscription: {
           status: subscriptionStatus,
