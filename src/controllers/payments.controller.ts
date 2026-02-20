@@ -10,6 +10,52 @@ import { Payment, User, SubscriptionPlan, PaymentSession } from '../models';
 import { AppError } from '../middleware/errorHandler';
 import * as stripeService from '../utils/stripe';
 
+// ============================================
+// HELPERS
+// ============================================
+
+/**
+ * Helper to convert plan pricing from cents to real units for API response
+ */
+const formatPlanPricing = (plan: any) => {
+  if (!plan) return null;
+  const planData = plan.toJSON ? plan.toJSON() : plan;
+
+  // Convert localized prices
+  if (planData.prices) {
+    if (planData.prices.monthly) {
+      Object.keys(planData.prices.monthly).forEach(curr => {
+        if (planData.prices.monthly[curr]) {
+          planData.prices.monthly[curr].amount /= 100;
+        }
+      });
+    }
+    if (planData.prices.yearly) {
+      Object.keys(planData.prices.yearly).forEach(curr => {
+        if (planData.prices.yearly[curr]) {
+          planData.prices.yearly[curr].amount /= 100;
+        }
+      });
+    }
+  }
+
+  // Convert metadata base amounts
+  if (planData.pricing_metadata) {
+    if (planData.pricing_metadata.base_amount_monthly) {
+      planData.pricing_metadata.base_amount_monthly /= 100;
+    }
+    if (planData.pricing_metadata.base_amount_yearly) {
+      planData.pricing_metadata.base_amount_yearly /= 100;
+    }
+  }
+
+  // Convert legacy fields
+  if (planData.price_monthly) planData.price_monthly /= 100;
+  if (planData.price_yearly) planData.price_yearly /= 100;
+
+  return planData;
+};
+
 /**
  * Get All Payments
  */
@@ -198,23 +244,25 @@ export const deletePayment = async (req: Request, res: Response, next: NextFunct
 /**
  * Create Stripe Checkout Session
  * POST /api/payments/checkout-session
- * Desktop app calls this to initiate payment
- * Returns checkout URL that desktop app opens in browser
  * 
- * BODY:
+ * PAYLOAD EXPECTED:
  * {
- *   "planId": "507f1f77bcf86cd799439011",
- *   "billingCycle": "monthly" | "yearly",
- *   "currency": "AUD"  // Optional - defaults to AUD
+ *   "planId": "...",        // MongoDB Plan ID
+ *   "billingCycle": "...",   // "monthly" or "yearly"
+ *   "currency": "..."       // "USD", "INR", "AUD", etc.
  * }
  */
 export const createCheckoutSession = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { planId, billingCycle = 'monthly', currency = 'AUD' } = req.body;
+    const { planId, billingCycle, currency } = req.body;
     const userId = req.user?.userId;
 
     if (!userId) {
       throw new AppError('User not authenticated', 401, 'UNAUTHORIZED');
+    }
+
+    if (!planId || !billingCycle || !currency) {
+      throw new AppError('Missing required fields: planId, billingCycle, currency', 400, 'MISSING_FIELDS');
     }
 
     // Fetch user and plan
@@ -235,13 +283,9 @@ export const createCheckoutSession = async (req: Request, res: Response, next: N
       throw new AppError('This plan is not available', 400, 'PLAN_INACTIVE');
     }
 
-    if (plan.is_contact_sales) {
-      throw new AppError('Enterprise plans require contacting sales', 400, 'CONTACT_SALES_REQUIRED');
-    }
-
     // Determine the Price ID from multi-currency structure
     const billingPeriod = billingCycle === 'yearly' ? 'yearly' : 'monthly';
-    const priceData = plan.prices[billingPeriod]?.[currency];
+    const priceData = plan.prices?.[billingPeriod]?.[currency.toUpperCase()];
 
     if (!priceData) {
       throw new AppError(
@@ -334,7 +378,7 @@ export const createCheckoutSession = async (req: Request, res: Response, next: N
  */
 export const processPayment = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { planId, paymentMethod, transactionId, amount } = req.body;
+    const { planId, paymentMethod, transactionId, amount, currency = 'AUD', billingCycle = 'monthly' } = req.body;
     const userId = req.user?.userId;
 
     if (!userId) {
@@ -347,19 +391,16 @@ export const processPayment = async (req: Request, res: Response, next: NextFunc
       throw new AppError('Subscription plan not found', 404, 'PLAN_NOT_FOUND');
     }
 
-    if (plan.status !== 'active') {
-      throw new AppError('This plan is not available', 400, 'PLAN_INACTIVE');
+    // Verify amount matches plan price for chosen currency and cycle
+    const billingPeriod = billingCycle === 'yearly' ? 'yearly' : 'monthly';
+    const planPriceData = plan.prices?.[billingPeriod]?.[currency.toUpperCase()];
+    
+    if (!planPriceData && amount !== 0) {
+      throw new AppError(`No price configuration found for ${currency} ${billingCycle}`, 400, 'INVALID_PRICING');
     }
 
-    // Find user
-    const user = await User.findById(userId);
-    if (!user) {
-      throw new AppError('User not found', 404, 'USER_NOT_FOUND');
-    }
-
-    // Verify amount matches plan price
-    const validPrices = [plan.price_monthly, plan.price_yearly].filter(p => p !== null && p !== undefined);
-    if (!validPrices.includes(amount) && amount !== 0) {
+    const expectedAmount = planPriceData?.amount || 0;
+    if (amount !== expectedAmount) {
       throw new AppError('Payment amount does not match plan price', 400, 'AMOUNT_MISMATCH');
     }
 
@@ -368,21 +409,23 @@ export const processPayment = async (req: Request, res: Response, next: NextFunc
       userId,
       planId,
       amount,
-      currency: plan.currency || 'AUD',
+      currency: currency.toUpperCase(),
       method: paymentMethod,
       status: 'completed',
       transactionId,
       date: new Date(),
     });
 
+    // Find user
+    const user = await User.findById(userId);
+    
     // Update user with plan and activate subscription
     user.plan_id = planId as any;
     user.subscription_status = 'active';
     
     // Set subscription end date based on billing period
     const subscriptionEnds = new Date();
-    // If amount matches yearly price (and yearly is different from monthly), assume yearly
-    if (plan.price_yearly && amount === plan.price_yearly && plan.price_yearly !== plan.price_monthly) {
+    if (billingCycle === 'yearly') {
       subscriptionEnds.setFullYear(subscriptionEnds.getFullYear() + 1);
     } else {
       subscriptionEnds.setMonth(subscriptionEnds.getMonth() + 1);
@@ -453,7 +496,10 @@ export const activateFreePlan = async (req: Request, res: Response, next: NextFu
       throw new AppError('Subscription plan not found', 404, 'PLAN_NOT_FOUND');
     }
 
-    if (plan.price_monthly > 0 || plan.price_yearly > 0) {
+    // Check if the plan is actually free using metadata
+    const isFree = plan.pricing_metadata?.base_amount_monthly === 0;
+
+    if (!isFree) {
       throw new AppError('This is a paid plan. Use payment endpoint instead.', 400, 'PAID_PLAN');
     }
 
@@ -586,7 +632,7 @@ export const getSubscriptionStatus = async (req: Request, res: Response, next: N
       data: {
         active: user.subscription_status === 'active' || user.subscription_status === 'trial',
         subscriptionStatus: user.subscription_status,
-        plan: user.plan_id,
+        plan: formatPlanPricing(user.plan_id),
         entitlements: groupedEntitlements,
         validUntil: user.subscription_ends_at,
         stripeCustomerId: user.stripeCustomerId,
@@ -680,7 +726,7 @@ export const checkSessionStatus = async (req: Request, res: Response, next: Next
           subscriptionStatus: user.subscription_status,
           subscriptionEndsAt: user.subscription_ends_at,
           onboardingPhase: user.onboardingPhase,
-          plan: user.plan_id
+          plan: formatPlanPricing(user.plan_id)
         };
       }
     }
@@ -689,9 +735,9 @@ export const checkSessionStatus = async (req: Request, res: Response, next: Next
       data: {
         status: session.status,
         isCompleted: session.status === 'completed',
-        amount: session.amount,
+        amount: session.amount / 100, // Convert to real units
         currency: session.currency,
-        plan: session.planId,
+        plan: formatPlanPricing(session.planId),
         user: userData,
         entitlements: planEntitlements
       }

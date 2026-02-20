@@ -27,9 +27,9 @@ const router = Router();
 
 /**
  * GET /subscriptions/plans
- * Get all subscription plans
+ * Get all subscription plans with optional user current plan identification
  */
-router.get('/plans', readLimiter, getSubscriptionPlans);
+router.get('/plans', readLimiter, authenticateToken, getSubscriptionPlans);
 
 /**
  * GET /subscriptions/plans/:id

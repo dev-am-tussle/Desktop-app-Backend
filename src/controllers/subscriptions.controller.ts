@@ -46,6 +46,13 @@ export const getSubscriptionPlans = async (req: Request, res: Response, next: Ne
     if (status) filter.status = status;
     if (category) filter.category = category;
 
+    // Fetch user's current plan if logged in
+    let currentUserPlanId = null;
+    if (req.user?.userId) {
+      const user = await User.findById(req.user.userId).select('plan_id');
+      currentUserPlanId = user?.plan_id?.toString();
+    }
+
     const plans = await SubscriptionPlan.find(filter);
 
     // Sort in memory by sort_order
@@ -95,19 +102,22 @@ export const getSubscriptionPlans = async (req: Request, res: Response, next: Ne
         const localizedPricing = {
           currency: userCurrency,
           monthly: monthlyPrice ? {
-            amount: monthlyPrice.amount,
+            amount: monthlyPrice.amount / 100, // Convert cents to real units
             source: monthlyPrice.source,
           } : null,
           yearly: yearlyPrice ? {
-            amount: yearlyPrice.amount,
+            amount: yearlyPrice.amount / 100, // Convert cents to real units
             source: yearlyPrice.source,
           } : null,
           region_code: userRegion.country_code,
           all_available_currencies: Object.keys(plan.prices?.monthly || {}),
         };
 
+        const formattedPlan = formatPlanPricing(plan);
+
         return {
-          ...plan.toJSON(),
+          ...formattedPlan,
+          isCurrentPlan: plan._id.toString() === currentUserPlanId,
           pricing: localizedPricing,
           entitlements: groupedEntitlements,
           entitlements_count: planEntitlements.length,
@@ -129,6 +139,47 @@ export const getSubscriptionPlans = async (req: Request, res: Response, next: Ne
 };
 
 /**
+ * Helper to convert plan pricing from cents to real units for API response
+ */
+const formatPlanPricing = (plan: any) => {
+  const planData = plan.toJSON ? plan.toJSON() : plan;
+
+  // Convert localized prices
+  if (planData.prices) {
+    if (planData.prices.monthly) {
+      Object.keys(planData.prices.monthly).forEach(curr => {
+        if (planData.prices.monthly[curr]) {
+          planData.prices.monthly[curr].amount /= 100;
+        }
+      });
+    }
+    if (planData.prices.yearly) {
+      Object.keys(planData.prices.yearly).forEach(curr => {
+        if (planData.prices.yearly[curr]) {
+          planData.prices.yearly[curr].amount /= 100;
+        }
+      });
+    }
+  }
+
+  // Convert metadata base amounts
+  if (planData.pricing_metadata) {
+    if (planData.pricing_metadata.base_amount_monthly) {
+      planData.pricing_metadata.base_amount_monthly /= 100;
+    }
+    if (planData.pricing_metadata.base_amount_yearly) {
+      planData.pricing_metadata.base_amount_yearly /= 100;
+    }
+  }
+
+  // Convert legacy fields if they exist
+  if (planData.price_monthly) planData.price_monthly /= 100;
+  if (planData.price_yearly) planData.price_yearly /= 100;
+
+  return planData;
+};
+
+/**
  * Get Subscription Plan by ID
  */
 export const getSubscriptionPlan = async (req: Request, res: Response, next: NextFunction) => {
@@ -140,7 +191,7 @@ export const getSubscriptionPlan = async (req: Request, res: Response, next: Nex
       throw new AppError('Subscription plan not found', 404, 'PLAN_NOT_FOUND');
     }
 
-    res.json({ data: plan });
+    res.json({ data: formatPlanPricing(plan) });
   } catch (error) {
     next(error);
   }
@@ -223,7 +274,7 @@ export const createSubscriptionPlan = async (req: Request, res: Response, next: 
     });
 
     res.status(201).json({
-      data: plan,
+      data: formatPlanPricing(plan),
       message: 'Subscription plan created with Stripe integration',
     });
   } catch (error: any) {
@@ -310,7 +361,7 @@ export const updateSubscriptionPlan = async (req: Request, res: Response, next: 
     );
 
     res.json({
-      data: updatedPlan,
+      data: formatPlanPricing(updatedPlan),
       message: 'Plan updated successfully',
     });
   } catch (error: any) {
