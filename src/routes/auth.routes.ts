@@ -111,4 +111,15 @@ router.get(
   usersController.verifySession
 );
 
+/**
+ * POST /api/auth/revoke-plan
+ * Revoke current user's plan and move to free tier
+ */
+router.post(
+  '/revoke-plan',
+  authenticateToken,
+  writeLimiter,
+  usersController.revokePlan
+);
+
 export default router;

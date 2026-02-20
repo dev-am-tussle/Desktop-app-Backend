@@ -7,6 +7,7 @@ import SubscriptionPlan from '../models/SubscriptionPlan.model';
 import PlanEntitlement from '../models/PlanEntitlement.model';
 import * as stripeService from '../utils/stripe';
 import CouponService from '../services/coupon.service';
+import { formatPlanPricing } from '../utils/formatters';
 
 // ============================================
 // ADMIN AUTHENTICATION CONTROLLERS
@@ -937,7 +938,7 @@ export const getPlanEntitlements = async (req: Request, res: Response, next: Nex
     res.status(200).json({
       success: true,
       data: {
-        plan: plan,
+        plan: formatPlanPricing(plan),
         entitlements: groupedEntitlements,
         raw_entitlements: planEntitlements,
       },

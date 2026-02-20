@@ -12,6 +12,7 @@ import { Request, Response, NextFunction } from 'express';
 import { SubscriptionPlan, User, CouponRedemption } from '../models';
 import { AppError } from '../middleware/errorHandler';
 import * as stripeService from '../utils/stripe';
+import { formatPlanPricing } from '../utils/formatters';
 import PlanEntitlement from '../models/PlanEntitlement.model';
 import EntitlementDefinition from '../models/EntitlementDefinition.model';
 
@@ -136,47 +137,6 @@ export const getSubscriptionPlans = async (req: Request, res: Response, next: Ne
   } catch (error) {
     next(error);
   }
-};
-
-/**
- * Helper to convert plan pricing from cents to real units for API response
- */
-const formatPlanPricing = (plan: any) => {
-  const planData = plan.toJSON ? plan.toJSON() : plan;
-
-  // Convert localized prices
-  if (planData.prices) {
-    if (planData.prices.monthly) {
-      Object.keys(planData.prices.monthly).forEach(curr => {
-        if (planData.prices.monthly[curr]) {
-          planData.prices.monthly[curr].amount /= 100;
-        }
-      });
-    }
-    if (planData.prices.yearly) {
-      Object.keys(planData.prices.yearly).forEach(curr => {
-        if (planData.prices.yearly[curr]) {
-          planData.prices.yearly[curr].amount /= 100;
-        }
-      });
-    }
-  }
-
-  // Convert metadata base amounts
-  if (planData.pricing_metadata) {
-    if (planData.pricing_metadata.base_amount_monthly) {
-      planData.pricing_metadata.base_amount_monthly /= 100;
-    }
-    if (planData.pricing_metadata.base_amount_yearly) {
-      planData.pricing_metadata.base_amount_yearly /= 100;
-    }
-  }
-
-  // Convert legacy fields if they exist
-  if (planData.price_monthly) planData.price_monthly /= 100;
-  if (planData.price_yearly) planData.price_yearly /= 100;
-
-  return planData;
 };
 
 /**

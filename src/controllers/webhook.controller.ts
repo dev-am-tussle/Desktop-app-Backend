@@ -157,7 +157,7 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
       userId,
       planId,
       amount: (session.amount_total || 0) / 100,
-      currency: session.currency?.toUpperCase() || 'USD',
+      currency: session.currency?.toUpperCase() || 'AUD',
       method: 'card',
       status: 'completed',
       transactionId: session.payment_intent as string,
@@ -222,7 +222,7 @@ async function handleInvoicePaymentSucceeded(invoice: Stripe.Invoice) {
       userId,
       planId: null, // Could extract from subscription if needed
       amount: (invoice.amount_paid || 0) / 100,
-      currency: invoice.currency?.toUpperCase() || 'USD',
+      currency: invoice.currency?.toUpperCase() || 'AUD',
       method: 'card',
       status: 'completed',
       transactionId: (invoice as any).payment_intent as string,

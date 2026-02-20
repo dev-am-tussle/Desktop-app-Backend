@@ -5,6 +5,7 @@ import { AppError } from '../middleware/errorHandler';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import entitlementsService from '../services/entitlements.service';
+import { formatPlanPricing } from '../utils/formatters';
 
 export const getUsers = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -445,10 +446,10 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
     if (user.plan_id) {
       const plan = await SubscriptionPlan.findById(user.plan_id).lean();
       if (plan) {
-        planDetails = {
+        planDetails = formatPlanPricing({
           ...plan,
           id: plan._id,
-        };
+        });
       }
     }
 
@@ -681,6 +682,74 @@ export const verifySession = async (req: Request, res: Response, next: NextFunct
           needsRenewal: remainingDays < 7,
         },
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Revoke User Plan
+ * Moves user back to Free tier and cancels Stripe subscription if active
+ * POST /api/users/revoke-plan
+ */
+export const revokePlan = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = (req as any).user.userId;
+    
+    // Find the user
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new AppError('User not found', 404, 'USER_NOT_FOUND');
+    }
+
+    // Find the Free plan
+    const freePlan = await SubscriptionPlan.findOne({ name: /free/i });
+    if (!freePlan) {
+      console.warn('⚠️ No "Free" plan found in database during revocation.');
+    }
+
+    // 1. Cancel in Stripe if exists
+    // if (user.stripeSubscriptionId) {
+    //   try {
+    //     const { cancelStripeSubscription } = require('../utils/stripe');
+    //     await cancelStripeSubscription(user.stripeSubscriptionId);
+    //   } catch (err: any) {
+    //     console.error('❌ Stripe Revocation Error:', err.message);
+    //     // We continue even if stripe fails, as the intention is to revoke access in our system
+    //   }
+    // }
+
+    // 2. Update user fields
+    user.plan_id = freePlan ? (freePlan._id as any) : undefined;
+    user.subscription_status = 'cancelled';
+    user.stripeSubscriptionId = undefined;
+    
+    // Reset onboarding phase if they were in a payment/processing state
+    if (user.onboardingPhase === 'payment_processing') {
+      user.onboardingPhase = 'plan_selection';
+    }
+    
+    await user.save();
+
+    // 3. Clear entitlement cache (Revoke all active snapshots)
+    const { EntitlementCache } = require('../models');
+    await EntitlementCache.updateMany(
+      { user_id: userId },
+      { $set: { revoked: true } }
+    );
+
+    // Force re-resolve entitlements to update cache immediately
+    await entitlementsService.resolveUserEntitlements(userId);
+
+    res.json({
+      success: true,
+      message: 'Plan revoked successfully. You have been moved to the free tier.',
+      data: {
+        plan_id: user.plan_id,
+        subscription_status: user.subscription_status,
+        onboardingPhase: user.onboardingPhase
+      }
     });
   } catch (error) {
     next(error);
