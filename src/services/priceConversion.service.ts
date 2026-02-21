@@ -196,12 +196,14 @@ export async function generatePriceBreakdown(payload: CreatePlanRequestPayload):
       currency: region.currency,
       monthly: {
         amount: monthlyConversion.amount,
+        prev_amount: region.prev_amount_monthly,
         source: monthlyConversion.source,
         stripe_price_id: '', // Will be populated after Stripe creation
       },
       ...(yearlyConversion && {
         yearly: {
           amount: yearlyConversion.amount,
+          prev_amount: region.prev_amount_yearly,
           source: yearlyConversion.source,
           stripe_price_id: '',
         },

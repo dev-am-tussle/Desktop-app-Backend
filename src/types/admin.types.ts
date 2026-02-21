@@ -30,12 +30,22 @@ export interface CreatePlanRequestPayload {
   
   // Display order
   sort_order?: number;
+
+  // Marketing Labels
+  marketing_labels?: {
+    badge_text?: string;
+    offer_tags?: string[];
+    is_on_sale?: boolean;
+    sale_end_date?: string;
+  };
 }
 
 export interface RegionPricing {
   currency: string;                // "USD", "INR", "GBP", etc.
   custom_amount_monthly?: number;  // optional override in that currency (cents)
   custom_amount_yearly?: number;   // optional override for yearly
+  prev_amount_monthly?: number;    // optional previous amount (cents)
+  prev_amount_yearly?: number;     // optional previous amount (cents)
   // If custom amounts are null/undefined, backend will auto-convert from AUD
 }
 
@@ -101,11 +111,13 @@ export interface PricingBreakdown {
   currency: string;
   monthly: {
     amount: number;
+    prev_amount?: number;
     source: 'base' | 'manual' | 'auto_converted';
     stripe_price_id: string;
   };
   yearly?: {
     amount: number;
+    prev_amount?: number;
     source: 'base' | 'manual' | 'auto_converted';
     stripe_price_id: string;
   };

@@ -8,6 +8,7 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 
 export interface IPriceData {
   amount: number;              // Amount in cents (1999 = $19.99)
+  prev_amount?: number;        // Original amount in cents (for strike-through)
   stripe_price_id: string;     // Stripe price object ID
   source: 'base' | 'manual' | 'auto_converted'; // How price was set
 }
@@ -38,12 +39,20 @@ export interface ISubscriptionPlan extends Document {
   
   // Pricing Metadata (REQUIRED)
   pricing_metadata: IPricingMetadata;
+
+  // Marketing Labels (NEW)
+  marketing_labels?: {
+    badge_text?: string;      // "Season Off"
+    offer_tags?: string[];    // ["Limited Offer", "New User Special"]
+    is_on_sale?: boolean;     // Switch for the UI
+    sale_end_date?: Date;    // UI countdown ke liye
+  };
   
   is_contact_sales: boolean;         // For Enterprise plan
   stripe_product_id: string;         // Stripe product ID
   
   // Meta
-  status: 'active' | 'archived';
+  status: 'active' | 'disabled' | 'archived';
   sort_order: number;                // Display order (1, 2, 3, 4)
   
   createdAt: Date;
@@ -105,6 +114,7 @@ const SubscriptionPlanSchema: Schema<ISubscriptionPlan> = new Schema(
             const p = priceData as any;
             if (!p || typeof p !== 'object') return false;
             if (typeof p.amount !== 'number' || p.amount < 0) return false;
+            if (p.prev_amount !== undefined && (typeof p.prev_amount !== 'number' || p.prev_amount < 0)) return false;
             if (typeof p.stripe_price_id !== 'string') return false;
             if (!['base', 'manual', 'auto_converted'].includes(p.source)) return false;
           }
@@ -128,6 +138,13 @@ const SubscriptionPlanSchema: Schema<ISubscriptionPlan> = new Schema(
         message: 'Pricing metadata must be valid'
       }
     },
+    // Marketing Labels (NEW)
+    marketing_labels: {
+      badge_text: { type: String, default: null },
+      offer_tags: { type: [String], default: [] },
+      is_on_sale: { type: Boolean, default: false },
+      sale_end_date: { type: Date, default: null },
+    },
     is_contact_sales: {
       type: Boolean,
       default: false,
@@ -141,7 +158,7 @@ const SubscriptionPlanSchema: Schema<ISubscriptionPlan> = new Schema(
     // Meta
     status: {
       type: String,
-      enum: ['active', 'archived'],
+      enum: ['active', 'disabled', 'archived'],
       default: 'active',
     },
     sort_order: {

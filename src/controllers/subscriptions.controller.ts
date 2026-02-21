@@ -44,7 +44,12 @@ export const getSubscriptionPlans = async (req: Request, res: Response, next: Ne
     const userCurrency = (requestedCurrency as string) || userRegion.currency || 'AUD';
 
     const filter: any = {};
-    if (status) filter.status = status;
+    
+    // Return all plans without any status filtering unless explicitly requested
+    if (status) {
+      filter.status = status;
+    }
+    
     if (category) filter.category = category;
 
     // Fetch user's current plan if logged in
@@ -104,10 +109,12 @@ export const getSubscriptionPlans = async (req: Request, res: Response, next: Ne
           currency: userCurrency,
           monthly: monthlyPrice ? {
             amount: monthlyPrice.amount / 100, // Convert cents to real units
+            prev_amount: monthlyPrice.prev_amount ? monthlyPrice.prev_amount / 100 : null,
             source: monthlyPrice.source,
           } : null,
           yearly: yearlyPrice ? {
             amount: yearlyPrice.amount / 100, // Convert cents to real units
+            prev_amount: yearlyPrice.prev_amount ? yearlyPrice.prev_amount / 100 : null,
             source: yearlyPrice.source,
           } : null,
           region_code: userRegion.country_code,
@@ -351,11 +358,37 @@ export const archiveSubscriptionPlan = async (req: Request, res: Response, next:
     if (plan.stripe_product_id) {
       await stripeService.archiveStripeProduct(plan.stripe_product_id);
     }
+    
+    // Handle legacy fields
     if (plan.stripe_price_monthly_id) {
       await stripeService.archiveStripePrice(plan.stripe_price_monthly_id);
     }
     if (plan.stripe_price_yearly_id) {
       await stripeService.archiveStripePrice(plan.stripe_price_yearly_id);
+    }
+
+    // Handle new multi-currency prices object
+    if (plan.prices) {
+      // Monthly prices
+      if (plan.prices.monthly) {
+        for (const currency of Object.keys(plan.prices.monthly)) {
+          const priceId = plan.prices.monthly[currency].stripe_price_id;
+          if (priceId) {
+            console.log(`🔵 Archiving Monthly Stripe Price for ${currency}: ${priceId}`);
+            await stripeService.archiveStripePrice(priceId);
+          }
+        }
+      }
+      // Yearly prices
+      if (plan.prices.yearly) {
+        for (const currency of Object.keys(plan.prices.yearly)) {
+          const priceId = plan.prices.yearly[currency].stripe_price_id;
+          if (priceId) {
+            console.log(`🔵 Archiving Yearly Stripe Price for ${currency}: ${priceId}`);
+            await stripeService.archiveStripePrice(priceId);
+          }
+        }
+      }
     }
 
     // Archive plan in database
@@ -391,14 +424,52 @@ export const unarchiveSubscriptionPlan = async (req: Request, res: Response, nex
       throw new AppError('Plan is not archived', 400, 'NOT_ARCHIVED');
     }
 
-    // Reactivate plan in database
+    // 1. Reactivate in Stripe
+    if (plan.stripe_product_id) {
+      console.log(`🔵 Reactivating Stripe Product: ${plan.stripe_product_id}`);
+      await stripeService.reactivateStripeProduct(plan.stripe_product_id);
+    }
+
+    // Handle legacy fields
+    if (plan.stripe_price_monthly_id) {
+      await stripeService.reactivateStripePrice(plan.stripe_price_monthly_id);
+    }
+    if (plan.stripe_price_yearly_id) {
+      await stripeService.reactivateStripePrice(plan.stripe_price_yearly_id);
+    }
+
+    // Handle new multi-currency prices object
+    if (plan.prices) {
+      // Monthly prices
+      if (plan.prices.monthly) {
+        for (const currency of Object.keys(plan.prices.monthly)) {
+          const priceId = plan.prices.monthly[currency].stripe_price_id;
+          if (priceId) {
+            console.log(`🔵 Reactivating Monthly Stripe Price for ${currency}: ${priceId}`);
+            await stripeService.reactivateStripePrice(priceId);
+          }
+        }
+      }
+      // Yearly prices
+      if (plan.prices.yearly) {
+        for (const currency of Object.keys(plan.prices.yearly)) {
+          const priceId = plan.prices.yearly[currency].stripe_price_id;
+          if (priceId) {
+            console.log(`🔵 Reactivating Yearly Stripe Price for ${currency}: ${priceId}`);
+            await stripeService.reactivateStripePrice(priceId);
+          }
+        }
+      }
+    }
+
+    // 2. Reactivate plan in database
     plan.status = 'active';
     await plan.save();
 
     res.json({
       data: {
         message: 'Subscription plan unarchived successfully',
-        plan,
+        plan: formatPlanPricing(plan),
       },
     });
   } catch (error: any) {
@@ -439,11 +510,37 @@ export const deleteSubscriptionPlan = async (req: Request, res: Response, next: 
     if (plan.stripe_product_id) {
       await stripeService.archiveStripeProduct(plan.stripe_product_id);
     }
+    
+    // Handle legacy fields
     if (plan.stripe_price_monthly_id) {
       await stripeService.archiveStripePrice(plan.stripe_price_monthly_id);
     }
     if (plan.stripe_price_yearly_id) {
       await stripeService.archiveStripePrice(plan.stripe_price_yearly_id);
+    }
+
+    // Handle new multi-currency prices object
+    if (plan.prices) {
+      // Monthly prices
+      if (plan.prices.monthly) {
+        for (const currency of Object.keys(plan.prices.monthly)) {
+          const priceId = plan.prices.monthly[currency].stripe_price_id;
+          if (priceId) {
+            console.log(`🔵 Archiving Monthly Stripe Price for ${currency}: ${priceId}`);
+            await stripeService.archiveStripePrice(priceId);
+          }
+        }
+      }
+      // Yearly prices
+      if (plan.prices.yearly) {
+        for (const currency of Object.keys(plan.prices.yearly)) {
+          const priceId = plan.prices.yearly[currency].stripe_price_id;
+          if (priceId) {
+            console.log(`🔵 Archiving Yearly Stripe Price for ${currency}: ${priceId}`);
+            await stripeService.archiveStripePrice(priceId);
+          }
+        }
+      }
     }
 
     // Delete plan from database

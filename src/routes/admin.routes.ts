@@ -21,6 +21,7 @@ import {
   revokeCoupon,
   deleteCoupon,
   getPlanEntitlements,
+  updatePlanStatus,
 } from '../controllers/admin.controller';
 import { authenticateAdminToken, requireAdminRole } from '../middleware/auth';
 import { validate } from '../middleware/validation';
@@ -269,6 +270,21 @@ router.get(
   readLimiter,
   authenticateAdminToken,
   getPlanEntitlements
+);
+
+/**
+ * PATCH /admin/plans/:id/status
+ * Enable or Disable a plan (hide from app)
+ */
+router.patch(
+  '/plans/:id/status',
+  writeLimiter,
+  authenticateAdminToken,
+  [
+    body('status').isIn(['active', 'disabled']).withMessage('Status must be active or disabled'),
+  ],
+  validate,
+  updatePlanStatus
 );
 
 // ============================================

@@ -16,6 +16,9 @@ export const formatPlanPricing = (plan: any) => {
       Object.keys(planData.prices.monthly).forEach(curr => {
         if (planData.prices.monthly[curr]) {
           planData.prices.monthly[curr].amount /= 100;
+          if (planData.prices.monthly[curr].prev_amount) {
+            planData.prices.monthly[curr].prev_amount /= 100;
+          }
         }
       });
     }
@@ -23,6 +26,9 @@ export const formatPlanPricing = (plan: any) => {
       Object.keys(planData.prices.yearly).forEach(curr => {
         if (planData.prices.yearly[curr]) {
           planData.prices.yearly[curr].amount /= 100;
+          if (planData.prices.yearly[curr].prev_amount) {
+            planData.prices.yearly[curr].prev_amount /= 100;
+          }
         }
       });
     }

@@ -70,6 +70,19 @@ export const archiveStripeProduct = async (productId: string): Promise<Stripe.Pr
   }
 };
 
+/**
+ * Reactivate (Unarchive) Stripe Product
+ */
+export const reactivateStripeProduct = async (productId: string): Promise<Stripe.Product> => {
+  try {
+    const product = await stripe.products.update(productId, { active: true });
+    return product;
+  } catch (error: any) {
+    console.error('❌ Stripe Product Reactivation Error:', error);
+    throw new Error(`Failed to reactivate Stripe product: ${error.message}`);
+  }
+};
+
 // ============================================
 // STRIPE PRICE OPERATIONS
 // ============================================
@@ -124,6 +137,19 @@ export const archiveStripePrice = async (priceId: string): Promise<Stripe.Price>
   } catch (error: any) {
     console.error('❌ Stripe Price Archive Error:', error);
     throw new Error(`Failed to archive Stripe price: ${error.message}`);
+  }
+};
+
+/**
+ * Reactivate (Unarchive) Stripe Price
+ */
+export const reactivateStripePrice = async (priceId: string): Promise<Stripe.Price> => {
+  try {
+    const price = await stripe.prices.update(priceId, { active: true });
+    return price;
+  } catch (error: any) {
+    console.error('❌ Stripe Price Reactivation Error:', error);
+    throw new Error(`Failed to reactivate Stripe price: ${error.message}`);
   }
 };
 

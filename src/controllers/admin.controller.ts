@@ -547,7 +547,9 @@ export const createPlanWithEntitlements = async (req: Request, res: Response, ne
         planPayload.target_regions = Object.keys(monthlyPrices).map(currency => ({
           currency,
           custom_amount_monthly: monthlyPrices[currency].amount,
-          custom_amount_yearly: yearlyPrices[currency]?.amount
+          custom_amount_yearly: yearlyPrices[currency]?.amount,
+          prev_amount_monthly: monthlyPrices[currency].prev_amount,
+          prev_amount_yearly: yearlyPrices[currency]?.prev_amount
         }));
       }
     }
@@ -634,6 +636,7 @@ export const createPlanWithEntitlements = async (req: Request, res: Response, ne
     for (const pricing of breakdown) {
       pricesObject.monthly[pricing.currency] = {
         amount: pricing.monthly.amount,
+        prev_amount: pricing.monthly.prev_amount,
         stripe_price_id: stripePriceIds.monthly[pricing.currency] || null,
         source: pricing.monthly.source,
       };
@@ -642,6 +645,7 @@ export const createPlanWithEntitlements = async (req: Request, res: Response, ne
         if (!pricesObject.yearly) pricesObject.yearly = {};
         pricesObject.yearly[pricing.currency] = {
           amount: pricing.yearly.amount,
+          prev_amount: pricing.yearly.prev_amount,
           stripe_price_id: stripePriceIds.yearly[pricing.currency] || null,
           source: pricing.yearly.source,
         };
@@ -661,6 +665,12 @@ export const createPlanWithEntitlements = async (req: Request, res: Response, ne
       // Multi-currency structure (REQUIRED)
       prices: pricesObject,
       pricing_metadata: generatePricingMetadata(planPayload, supportedCurrencies),
+      marketing_labels: planPayload.marketing_labels || {
+        badge_text: null,
+        offer_tags: [],
+        is_on_sale: false,
+        sale_end_date: null
+      },
       
       is_contact_sales: planPayload.is_contact_sales || false,
       status: 'active',
@@ -706,17 +716,7 @@ export const createPlanWithEntitlements = async (req: Request, res: Response, ne
       success: true,
       message: 'Plan with multi-currency pricing created successfully',
       data: {
-        plan: {
-          id: newPlan._id,
-          name: newPlan.name,
-          display_name: newPlan.display_name,
-          slug: newPlan.slug,
-          prices: newPlan.prices,
-          pricing_metadata: newPlan.pricing_metadata,
-          stripe_product_id: newPlan.stripe_product_id,
-          stripe_prices_created: Object.keys(stripePriceIds.monthly).length,
-          status: newPlan.status,
-        },
+        plan: formatPlanPricing(newPlan),
         pricing_breakdown: breakdown,
         entitlements: {
           summary: entitlementSummary,
@@ -942,6 +942,38 @@ export const getPlanEntitlements = async (req: Request, res: Response, next: Nex
         entitlements: groupedEntitlements,
         raw_entitlements: planEntitlements,
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Update Plan Status (Toggle Active/Disabled)
+ * PATCH /api/admin/plans/:id/status
+ */
+export const updatePlanStatus = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!['active', 'disabled'].includes(status)) {
+      throw new AppError('Invalid status. Only "active" and "disabled" are allowed.', 400, 'INVALID_STATUS');
+    }
+
+    const plan = await SubscriptionPlan.findById(id);
+    if (!plan) {
+      throw new AppError('Plan not found', 404, 'PLAN_NOT_FOUND');
+    }
+
+    // Update only the status
+    plan.status = status as any;
+    await plan.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Plan status updated to ${status} successfully`,
+      data: formatPlanPricing(plan),
     });
   } catch (error) {
     next(error);
