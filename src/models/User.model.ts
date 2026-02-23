@@ -15,14 +15,14 @@ export interface IUser extends Document {
   subscription_status: 'trial' | 'active' | 'past_due' | 'cancelled' | 'expired';
   subscription_ends_at?: Date;       // Billing cycle end
   grace_period_until?: Date;         // Payment failure grace period
-  
+
   // Stripe Integration Fields
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
-  
+
   // Offline Entitlement Cache
   last_entitlement_sync?: Date;
-  
+
   // Desktop Application Onboarding Phase Tracking
   onboardingPhase: 'account_created' | 'plan_selection' | 'payment_processing' | 'model_setup' | 'completed';
   phaseCompletedAt?: {
@@ -33,14 +33,12 @@ export interface IUser extends Document {
     completed?: Date;
   };
   lastActivePhase?: string;
-
   // Legal Consent
   consent?: {
     termsAccepted: boolean;
     termsAcceptedAt: Date;
     termsVersion?: string;
   };
-  
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -79,7 +77,7 @@ const UserSchema: Schema<IUser> = new Schema(
       type: String,
       enum: ['active', 'disabled', 'pending'],
       default: 'active',
-    }, 
+    },
     lastSeen: {
       type: Date,
       default: null,
@@ -148,17 +146,17 @@ const UserSchema: Schema<IUser> = new Schema(
     },
     // Legal Consent
     consent: {
-      termsAccepted: { 
-        type: Boolean, 
-        default: false 
+      termsAccepted: {
+        type: Boolean,
+        default: false
       },
-      termsAcceptedAt: { 
+      termsAcceptedAt: {
         type: Date,
         default: null
       },
-      termsVersion: { 
-        type: String, 
-        default: 'v1' 
+      termsVersion: {
+        type: String,
+        default: 'v1'
       },
     },
   },

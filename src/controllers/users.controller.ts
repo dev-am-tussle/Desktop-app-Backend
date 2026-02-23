@@ -5,7 +5,7 @@ import { AppError } from '../middleware/errorHandler';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import entitlementsService from '../services/entitlements.service';
-import { formatPlanPricing } from '../utils/formatters';
+import { getSubscriptionDetails } from '../utils/userHelpers';
 
 export const getUsers = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -129,6 +129,9 @@ export const getUserById = async (req: Request, res: Response, next: NextFunctio
       throw new AppError('User not found', 404, 'USER_NOT_FOUND');
     }
 
+    // Get complete subscription details using helper
+    const subscriptionDetails = await getSubscriptionDetails(user);
+
     // Fetch related data in parallel
     const [apiKeys, licenses, payments, installedModels, conversationsCount] = await Promise.all([
       ApiKey.find({ userId: id }).select('-key').lean(),
@@ -140,6 +143,7 @@ export const getUserById = async (req: Request, res: Response, next: NextFunctio
 
     const userDetail = {
       ...user,
+      subscription: subscriptionDetails,
       apiKeys,
       licenses,
       payments,
@@ -330,6 +334,9 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
 
     await user.save();
 
+    // Get complete subscription details using helper
+    const subscriptionDetails = await getSubscriptionDetails(user);
+
     // Generate entitlement snapshot for new user
     let entitlementSnapshot = null;
     try {
@@ -376,7 +383,7 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
           role: user.role,
           status: user.status,
           subscriptionStatus: user.subscription_status,
-          plan: freePlan,
+          subscription: subscriptionDetails,
           trialEndsAt: user.subscription_ends_at,
           createdAt: user.createdAt,
           consent: user.consent,
@@ -441,36 +448,12 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
     user.lastSeen = new Date();
     await user.save();
 
-    // Get plan details from user.plan_id
-    let planDetails = null;
-    if (user.plan_id) {
-      const plan = await SubscriptionPlan.findById(user.plan_id).lean();
-      if (plan) {
-        planDetails = formatPlanPricing({
-          ...plan,
-          id: plan._id,
-        });
-      }
-    }
-
-    // Handle coupon-based subscription - Priority over standard plan display if active via coupon
-    if (user.subscription_status === 'active' && !user.stripeSubscriptionId) {
-      const lastRedemption = await CouponRedemption.findOne({ user_id: user._id }).sort({ redeemed_at: -1 });
-      if (lastRedemption) {
-        planDetails = {
-          ...(planDetails || {}),
-          id: lastRedemption.coupon_id,
-          name: 'coupon',
-          display_name: planDetails?.display_name || 'Custom Individual Plan (Coupon)',
-          slug: 'coupon-access',
-          description: 'Access granted via coupon redemption',
-          category: 'personal',
-          features: planDetails?.features || []
-        };
-      }
-    }
+    // Get complete subscription details using helper
+    const subscriptionDetails = await getSubscriptionDetails(user);
 
     const subscriptionStatus = user.subscription_status || 'none';
+
+    // Determine session duration based on subscription status
 
     // Determine session duration based on subscription status
     let sessionExpiryDays = 30; // Default for trial
@@ -529,13 +512,7 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
           createdAt: user.createdAt,
           consent: user.consent,
         },
-        subscription: {
-          status: subscriptionStatus,
-          subscription_ends_at: user.subscription_ends_at || null,
-          grace_period_until: user.grace_period_until || null,
-          stripeSubscriptionId: user.stripeSubscriptionId || null,
-          plan: planDetails,
-        },
+        subscription: subscriptionDetails,
         authentication: {
           sessionToken,
           refreshToken,
@@ -611,17 +588,22 @@ export const refreshSession = async (req: Request, res: Response, next: NextFunc
     const sessionExpiresAt = new Date();
     sessionExpiresAt.setDate(sessionExpiresAt.getDate() + sessionExpiryDays);
 
+    const subscriptionTokenStatus = user.subscription_status === 'active' ? 'paid' : 'trial';
+
     const sessionToken = jwt.sign(
       {
         userId: user._id.toString(),
         email: user.email,
         role: user.role,
         subscriptionStatus,
-        sessionType: subscriptionStatus === 'active' ? 'paid' : 'trial',
+        sessionType: subscriptionTokenStatus,
       },
       process.env.JWT_SECRET!,
       { expiresIn: `${sessionExpiryDays}d` }
     );
+
+    // Get subscription details for response
+    const subscriptionDetails = await getSubscriptionDetails(user);
 
     res.json({
       data: {
@@ -632,6 +614,7 @@ export const refreshSession = async (req: Request, res: Response, next: NextFunc
           id: user._id,
           subscriptionStatus,
         },
+        subscription: subscriptionDetails,
       },
     });
   } catch (error) {
@@ -666,6 +649,9 @@ export const verifySession = async (req: Request, res: Response, next: NextFunct
     const remainingSeconds = tokenExp - now;
     const remainingDays = Math.floor(remainingSeconds / 86400);
 
+    // Get subscription details for response
+    const subscriptionDetails = await getSubscriptionDetails(user);
+
     res.json({
       data: {
         valid: true,
@@ -676,6 +662,7 @@ export const verifySession = async (req: Request, res: Response, next: NextFunct
           subscriptionStatus,
           status: user.status,
         },
+        subscription: subscriptionDetails,
         session: {
           expiresAt: new Date(tokenExp * 1000).toISOString(),
           remainingDays,
