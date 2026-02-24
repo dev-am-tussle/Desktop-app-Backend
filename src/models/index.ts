@@ -27,6 +27,7 @@ import { CouponRedemption } from './CouponRedemption.model';
 
 // NEW: FX Rates Management
 import FXRate from './FXRate.model';
+import Support from './Support.model';
 
 // Export all models
 export {
@@ -50,6 +51,8 @@ export {
   CouponRedemption,
   // FX Rates Management
   FXRate,
+  // Support
+  Support,
 };
 
 // Export types
@@ -64,6 +67,7 @@ export type { IAuditLog } from './AuditLog.model';
 export type { IInstalledModel } from './InstalledModel.model';
 export type { IApiKey } from './ApiKey.model';
 export type { IConversation } from './Conversation.model';
+export type { ISupport } from './Support.model';
 
 // Entitlement System Types
 export type { IEntitlementDefinition } from './EntitlementDefinition.model';

@@ -19,6 +19,7 @@ import chatRoutes from './chat.routes';
 import entitlementsRoutes from './entitlements.routes';
 import couponsRoutes from './coupons.routes';
 import fxRatesRoutes from './fxRates.routes';
+import supportRoutes from './support.routes';
 // Note: webhookRoutes mounted separately in server.ts before JSON parser
 
 const router = Router();
@@ -48,6 +49,7 @@ router.use('/fx-rates', fxRatesRoutes); // FX rates public endpoint (no auth req
 // Note: /webhook routes mounted separately in server.ts (before JSON parser for raw body)
 router.use('/public', publicRoutes); // Public desktop app routes
 router.use('/dashboard', dashboardRoutes); // Dashboard analytics routes
+router.use('/support', supportRoutes); // Support ticket routes
 router.use('/providers', providersRoutes); // External API provider routes
 router.use('/chat', chatRoutes); // Chat completion routes
 router.use('/entitlements', entitlementsRoutes); // Entitlements management routes
