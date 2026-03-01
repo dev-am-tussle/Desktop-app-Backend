@@ -9,6 +9,7 @@ import { Request, Response, NextFunction } from 'express';
 import { Payment, User, SubscriptionPlan, PaymentSession } from '../models';
 import { AppError } from '../middleware/errorHandler';
 import * as stripeService from '../utils/stripe';
+import { getSubscriptionDetails } from '../utils/userHelpers';
 
 // ============================================
 // HELPERS
@@ -307,7 +308,7 @@ export const createCheckoutSession = async (req: Request, res: Response, next: N
 
     // Create or retrieve Stripe customer
     let stripeCustomerId = user.stripeCustomerId;
-    
+
     if (!stripeCustomerId) {
       console.log('🔵 Creating Stripe Customer...');
       const stripeCustomer = await stripeService.createStripeCustomer({
@@ -315,13 +316,13 @@ export const createCheckoutSession = async (req: Request, res: Response, next: N
         name: user.name,
         userId: userId.toString(),
       });
-      
+
       stripeCustomerId = stripeCustomer.id;
-      
+
       // Save Stripe customer ID to user
       user.stripeCustomerId = stripeCustomerId;
       await user.save();
-      
+
       console.log('✅ Stripe Customer Created:', stripeCustomerId);
     }
 
@@ -334,7 +335,7 @@ export const createCheckoutSession = async (req: Request, res: Response, next: N
       planId: planId.toString(),
       mode: 'subscription',
     });
-    
+
     console.log('✅ Checkout Session Created:', checkoutSession.id);
 
     // Save payment session to database (multi-currency)
@@ -394,7 +395,7 @@ export const processPayment = async (req: Request, res: Response, next: NextFunc
     // Verify amount matches plan price for chosen currency and cycle
     const billingPeriod = billingCycle === 'yearly' ? 'yearly' : 'monthly';
     const planPriceData = plan.prices?.[billingPeriod]?.[currency.toUpperCase()];
-    
+
     if (!planPriceData && amount !== 0) {
       throw new AppError(`No price configuration found for ${currency} ${billingCycle}`, 400, 'INVALID_PRICING');
     }
@@ -418,11 +419,11 @@ export const processPayment = async (req: Request, res: Response, next: NextFunc
 
     // Find user
     const user = await User.findById(userId);
-    
+
     // Update user with plan and activate subscription
     user.plan_id = planId as any;
     user.subscription_status = 'active';
-    
+
     // Set subscription end date based on billing period
     const subscriptionEnds = new Date();
     if (billingCycle === 'yearly') {
@@ -512,7 +513,7 @@ export const activateFreePlan = async (req: Request, res: Response, next: NextFu
     // Update user with free plan
     user.plan_id = planId as any;
     user.subscription_status = 'trial';
-    
+
     // Set trial end date for free plans
     if (!user.subscription_ends_at) {
       const trialEnd = new Date();
@@ -556,95 +557,25 @@ export const activateFreePlan = async (req: Request, res: Response, next: NextFu
  */
 export const getSubscriptionStatus = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
   try {
-    console.log('🔍 Subscription status request received');
-    console.log('📋 req.user:', req.user);
-    
     const userId = req.user?.userId;
 
     if (!userId) {
-      console.log('❌ No userId in token');
       throw new AppError('User not authenticated', 401, 'UNAUTHORIZED');
     }
 
-    console.log('✅ User ID from token:', userId);
+    // Fetch user 
+    const user = await User.findById(userId);
 
-    // Fetch user with subscription details
-    const user = await User.findById(userId)
-      .select('-password')
-      .populate('plan_id');
-      
     if (!user) {
       throw new AppError('User not found', 404, 'USER_NOT_FOUND');
     }
 
-    // Check if user has active subscription
-    if (!user.plan_id || !user.subscription_status || user.subscription_status === 'expired') {
-      return res.json({
-        data: {
-          active: false,
-          subscriptionStatus: 'none',
-          user: {
-            id: user._id,
-            name: user.name,
-            email: user.email,
-          },
-          message: 'No active subscription',
-        },
-      });
-    }
-
-    // Fetch entitlements if user has a plan
-    let groupedEntitlements = null;
-    if (user.plan_id) {
-      const { default: PlanEntitlement } = await import('../models/PlanEntitlement.model');
-      const { default: EntitlementDefinition } = await import('../models/EntitlementDefinition.model');
-
-      const planEntitlements = await PlanEntitlement.find({ plan_id: user.plan_id._id }).lean();
-      const entitlementKeys = planEntitlements.map((e: any) => e.entitlement_key);
-      const definitions = await EntitlementDefinition.find({
-        key: { $in: entitlementKeys },
-      }).lean();
-
-      const definitionMap = new Map(definitions.map((d: any) => [d.key, d]));
-      
-      groupedEntitlements = {
-        capabilities: [],
-        limits: [],
-        resources: [],
-        deployment: [],
-        support: [],
-      };
-
-      planEntitlements.forEach((ent: any) => {
-        const def = definitionMap.get(ent.entitlement_key);
-        if (def) {
-          groupedEntitlements[def.category].push({
-            key: ent.entitlement_key,
-            value: ent.value,
-            type: def.type,
-            description: def.description,
-          });
-        }
-      });
-    }
+    // Get complete subscription details using helper (standardizes architecture)
+    const subscriptionDetails = await getSubscriptionDetails(user);
 
     res.json({
-      data: {
-        active: user.subscription_status === 'active' || user.subscription_status === 'trial',
-        subscriptionStatus: user.subscription_status,
-        plan: formatPlanPricing(user.plan_id),
-        entitlements: groupedEntitlements,
-        validUntil: user.subscription_ends_at,
-        stripeCustomerId: user.stripeCustomerId,
-        stripeSubscriptionId: user.stripeSubscriptionId,
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          status: user.status,
-          onboardingPhase: user.onboardingPhase,
-        },
-      },
+      success: true,
+      data: subscriptionDetails
     });
   } catch (error) {
     next(error);
@@ -664,7 +595,7 @@ export const checkSessionStatus = async (req: Request, res: Response, next: Next
       throw new AppError('User not authenticated', 401, 'UNAUTHORIZED');
     }
 
-    const session = await PaymentSession.findOne({ 
+    const session = await PaymentSession.findOne({
       stripeSessionId: sessionId
     }).populate('planId');
 
@@ -678,58 +609,25 @@ export const checkSessionStatus = async (req: Request, res: Response, next: Next
       throw new AppError('Unauthorized access to payment session', 403, 'FORBIDDEN');
     }
 
-    // If session is completed, also check the user's latest status and entitlements
-    let userData = null;
-    let planEntitlements = null;
-
+    // If session is completed, get full architecture from user record
+    let subscriptionDetails = null;
     if (session.status === 'completed') {
-      const user = await User.findById(userId).populate('plan_id');
-      if (user && user.plan_id) {
-        // Fetch entitlements for this plan
-        const { default: PlanEntitlement } = await import('../models/PlanEntitlement.model');
-        const { default: EntitlementDefinition } = await import('../models/EntitlementDefinition.model');
-
-        const entitlements = await PlanEntitlement.find({ plan_id: user.plan_id._id }).lean();
-        const entitlementKeys = entitlements.map((e: any) => e.entitlement_key);
-        const definitions = await EntitlementDefinition.find({
-          key: { $in: entitlementKeys },
-        }).lean();
-
-        const definitionMap = new Map(definitions.map((d: any) => [d.key, d]));
-        
-        // Group entitlements
-        const grouped: any = {
-          capabilities: [],
-          limits: [],
-          resources: [],
-          deployment: [],
-          support: [],
-        };
-
-        entitlements.forEach((ent: any) => {
-          const def = definitionMap.get(ent.entitlement_key);
-          if (def) {
-            grouped[def.category].push({
-              key: ent.entitlement_key,
-              value: ent.value,
-              type: def.type,
-              description: def.description,
-            });
-          }
-        });
-
-        planEntitlements = grouped;
-        userData = {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          subscriptionStatus: user.subscription_status,
-          subscriptionEndsAt: user.subscription_ends_at,
-          onboardingPhase: user.onboardingPhase,
-          plan: formatPlanPricing(user.plan_id)
-        };
+      const user = await User.findById(userId);
+      if (user) {
+        subscriptionDetails = await getSubscriptionDetails(user);
       }
     }
+
+    // Prepare session-specific plan summary (from PaymentSession entry)
+    const sessionPlanSummary = session.planId
+      ? {
+        id: session.planId._id || session.planId.id,
+        name: session.planId.display_name || session.planId.name || null,
+        slug: session.planId.slug || null,
+        description: session.planId.description || null,
+        features: session.planId.features || [],
+      }
+      : null;
 
     res.json({
       data: {
@@ -737,9 +635,8 @@ export const checkSessionStatus = async (req: Request, res: Response, next: Next
         isCompleted: session.status === 'completed',
         amount: session.amount / 100, // Convert to real units
         currency: session.currency,
-        plan: formatPlanPricing(session.planId),
-        user: userData,
-        entitlements: planEntitlements
+        plan: sessionPlanSummary, // Original session plan
+        ...(subscriptionDetails ? { ...subscriptionDetails } : {})
       }
     });
   } catch (error) {

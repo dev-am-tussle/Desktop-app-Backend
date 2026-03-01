@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import entitlementsService from '../services/entitlements.service';
 import EntitlementDefinition from '../models/EntitlementDefinition.model';
+import { User } from '../models';
+import { getSubscriptionDetails } from '../utils/userHelpers';
 
 /**
  * Sync/Regenerate entitlement snapshot
@@ -17,11 +19,17 @@ export const syncEntitlements = async (req: Request, res: Response): Promise<voi
 
     // Revoke old caches and generate fresh snapshot
     await entitlementsService.revokeAllCaches(userId);
-    const snapshot = await entitlementsService.resolveUserEntitlements(userId);
+    const user = await User.findById(userId);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const subscriptionDetails = await getSubscriptionDetails(user);
 
     res.status(200).json({
       message: 'Entitlements synced successfully',
-      data: snapshot,
+      data: subscriptionDetails,
     });
   } catch (error: any) {
     console.error('Error syncing entitlements:', error);
@@ -45,16 +53,17 @@ export const getEntitlements = async (req: Request, res: Response): Promise<void
       return;
     }
 
-    // Try cached first, fallback to regenerate
-    let snapshot = await entitlementsService.getCachedEntitlements(userId);
-    
-    if (!snapshot) {
-      snapshot = await entitlementsService.resolveUserEntitlements(userId);
+    const user = await User.findById(userId);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
     }
+
+    const subscriptionDetails = await getSubscriptionDetails(user);
 
     res.status(200).json({
       message: 'Entitlements retrieved successfully',
-      data: snapshot,
+      data: subscriptionDetails,
     });
   } catch (error: any) {
     console.error('Error fetching entitlements:', error);

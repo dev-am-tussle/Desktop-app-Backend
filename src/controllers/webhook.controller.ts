@@ -13,7 +13,20 @@ import Stripe from 'stripe';
 export const handleStripeWebhook = async (req: Request, res: Response): Promise<any> => {
   try {
     const signature = req.headers['stripe-signature'] as string;
-    
+
+    // Diagnostic logging before verification
+    const mask = (s?: string) => {
+      if (!s) return '<not-set>';
+      if (s.length <= 8) return '****';
+      return `${s.slice(0, 8)}****${s.slice(-4)}`;
+    };
+
+    console.log('🔔 Incoming Stripe webhook');
+    console.log('   STRIPE_SECRET_KEY prefix:', mask(process.env.STRIPE_SECRET_KEY));
+    console.log('   STRIPE_WEBHOOK_SECRET:', mask(process.env.STRIPE_WEBHOOK_SECRET));
+    console.log('   Received signature header (masked):', signature ? `${signature.slice(0,16)}...` : '<none>');
+    console.log('   Raw payload size:', req.body ? (Buffer.isBuffer(req.body) ? req.body.length : String(req.body).length) : 0);
+
     if (!signature) {
       return res.status(400).json({ error: 'No signature provided' });
     }
@@ -24,10 +37,40 @@ export const handleStripeWebhook = async (req: Request, res: Response): Promise<
       event = stripeService.constructWebhookEvent(req.body, signature);
     } catch (err: any) {
       console.error('❌ Webhook signature verification failed:', err.message);
+      console.error('   Verification failed for signature (masked):', signature ? `${signature.slice(0,16)}...` : '<none>');
       return res.status(400).json({ error: `Webhook Error: ${err.message}` });
     }
 
     console.log(`🔔 Stripe Webhook Event: ${event.type}`);
+
+    // Additional diagnostic dump for checkout.session.completed payloads
+    try {
+      if (event.type === 'checkout.session.completed') {
+        const session = event.data.object as Stripe.Checkout.Session;
+        console.log('   Checkout Session details:');
+        console.log('     id:', session.id);
+        console.log('     amount_total:', session.amount_total);
+        console.log('     currency:', session.currency);
+        console.log('     payment_status:', session.payment_status);
+        console.log('     subscription:', session.subscription);
+        console.log('     payment_intent:', session.payment_intent);
+        console.log('     customer:', session.customer);
+        console.log('     metadata:', session.metadata);
+        // If line_items were expanded by Stripe, log first line item and price id
+        // (Note: line_items are not always present in webhook payload)
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        if (session.line_items && session.line_items.data && session.line_items.data.length > 0) {
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+          // @ts-ignore
+          const li = session.line_items.data[0];
+          console.log('     line_item[0] description:', li.description || li.price?.product || li.price?.id);
+          console.log('     line_item[0] price id:', li.price?.id || '<unknown>');
+        }
+      }
+    } catch (dumpErr) {
+      console.warn('⚠️ Failed to dump checkout session details:', dumpErr);
+    }
  
     // Handle different event types
     switch (event.type) {
@@ -74,6 +117,9 @@ export const handleStripeWebhook = async (req: Request, res: Response): Promise<
 async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) {
   try {
     console.log('✅ Checkout session completed:', session.id);
+    console.log('   session metadata:', session.metadata);
+    console.log('   session amount_total:', session.amount_total, 'currency:', session.currency);
+    console.log('   session payment_intent:', session.payment_intent, 'subscription:', session.subscription);
 
     const userId = session.metadata?.userId;
     const planId = session.metadata?.planId;

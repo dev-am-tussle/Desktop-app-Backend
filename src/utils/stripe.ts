@@ -303,15 +303,30 @@ export const constructWebhookEvent = (
 ): Stripe.Event => {
   try {
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    
+
+    // Diagnostic logs (masked) for debugging test/live switchovers
+    const mask = (s?: string) => {
+      if (!s) return '<not-set>';
+      if (s.length <= 8) return '****';
+      return `${s.slice(0, 8)}****${s.slice(-4)}`;
+    };
+
+    console.log('🔍 Stripe webhook verification starting');
+    console.log('   STRIPE_SECRET_KEY prefix:', mask(process.env.STRIPE_SECRET_KEY));
+    console.log('   STRIPE_WEBHOOK_SECRET:', mask(webhookSecret));
+    console.log('   Received signature header (masked):', signature ? `${signature.slice(0,16)}...` : '<none>');
+    console.log('   Payload size:', Buffer.isBuffer(payload) ? payload.length : String(payload).length);
+
     if (!webhookSecret) {
       throw new Error('STRIPE_WEBHOOK_SECRET not configured');
     }
-    
+
     const event = stripe.webhooks.constructEvent(payload, signature, webhookSecret);
+    console.log('✅ Webhook constructed:', event.id, event.type);
     return event;
   } catch (error: any) {
-    console.error('❌ Webhook Signature Verification Failed:', error);
+    console.error('❌ Webhook Signature Verification Failed:', error?.message || error);
+    // Re-throw with message preserved
     throw new Error(`Webhook verification failed: ${error.message}`);
   }
 };

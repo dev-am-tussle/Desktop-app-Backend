@@ -3,7 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 import { User, SubscriptionPlan, Payment, CouponRedemption } from '../models';
 import { AppError } from '../middleware/errorHandler';
 import jwt from 'jsonwebtoken';
-import { resolveUserEntitlements } from '../services/entitlements.service';
+import { getSubscriptionDetails } from '../utils/userHelpers';
 
 // ============================================
 // PUBLIC USER CONTROLLERS (Desktop App)
@@ -39,13 +39,14 @@ export const registerPublicUser = async (req: Request, res: Response, next: Next
       plan_id: freePlan._id,
       subscription_status: 'trial',
       onboardingPhase: 'account_created',
+      tags: ['new-user'],
       phaseCompletedAt: {
         accountCreated: new Date(),
       },
     });
 
-    // Generate entitlement snapshot for offline use
-    const entitlements = await resolveUserEntitlements(user._id.toString());
+    // Get complete subscription details using helper
+    const subscriptionDetails = await getSubscriptionDetails(user);
 
     // Generate session token
     const jwtSecret = process.env.JWT_SECRET || 'fallback-secret';
@@ -72,20 +73,13 @@ export const registerPublicUser = async (req: Request, res: Response, next: Next
 
     res.status(201).json({
       data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          onboardingPhase: user.onboardingPhase,
-        },
+        ...subscriptionDetails,
         authentication: {
           sessionToken,
           refreshToken,
           expiresIn: '30 days',
           message: 'Registration successful!',
         },
-        entitlements, // Include entitlement snapshot for offline use
       },
     });
   } catch (error) {
@@ -121,19 +115,8 @@ export const loginPublicUser = async (req: Request, res: Response, next: NextFun
     user.lastSeen = new Date();
     await user.save();
 
-    // Populate user plan
-    await user.populate('plan_id');
-
-    // Check trial expiry
-    if (user.subscription_status === 'trial' && user.subscription_ends_at) {
-      if (user.subscription_ends_at < new Date()) {
-        user.subscription_status = 'expired';
-        await user.save();
-      }
-    }
-
-    // Generate entitlement snapshot
-    const entitlements = await resolveUserEntitlements(user._id.toString());
+    // Get complete subscription details using helper
+    const subscriptionDetails = await getSubscriptionDetails(user);
 
     // Generate tokens
     const jwtSecret = process.env.JWT_SECRET || 'fallback-secret';
@@ -160,47 +143,14 @@ export const loginPublicUser = async (req: Request, res: Response, next: NextFun
       { expiresIn: '90d' }
     );
 
-    // Prepare plan response
-    let planInfo = {
-      id: (user.plan_id as any)?._id,
-      name: (user.plan_id as any)?.display_name,
-      slug: (user.plan_id as any)?.slug,
-    };
-
-    // If active via coupon, override plan info
-    if (user.subscription_status === 'active' && !user.stripeSubscriptionId) {
-      const lastRedemption = await CouponRedemption.findOne({ user_id: user._id }).sort({ redeemed_at: -1 });
-      if (lastRedemption) {
-        planInfo = {
-          id: lastRedemption.coupon_id as any,
-          name: planInfo.name || 'Custom Individual Plan (Coupon)',
-          slug: 'coupon-access',
-        };
-      }
-    }
-
     res.json({
       data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          onboardingPhase: user.onboardingPhase,
-          lastActivePhase: user.lastActivePhase,
-        },
-        plan: planInfo,
-        subscription: {
-          status: user.subscription_status,
-          ends_at: user.subscription_ends_at,
-          grace_period_until: user.grace_period_until,
-        },
+        ...subscriptionDetails,
         authentication: {
           sessionToken,
           refreshToken,
           expiresIn: tokenExpiry,
         },
-        entitlements, // Include entitlement snapshot for offline use
       },
     });
   } catch (error) {
@@ -233,62 +183,16 @@ export const getPublicUserProfile = async (req: Request, res: Response, next: Ne
       throw new AppError('Unauthorized', 401, 'UNAUTHORIZED');
     }
 
-    const user = await User.findById(userId).populate('plan_id');
+    const user = await User.findById(userId);
     if (!user) {
       throw new AppError('User not found', 404, 'USER_NOT_FOUND');
     }
 
-    // Check trial expiry
-    if (user.subscription_status === 'trial' && user.subscription_ends_at) {
-      if (user.subscription_ends_at < new Date()) {
-        user.subscription_status = 'expired';
-        await user.save();
-      }
-    }
-
-    // Generate fresh entitlement snapshot
-    const entitlements = await resolveUserEntitlements(user._id.toString());
-
-    // Prepare plan response
-    let planInfo = {
-      id: (user.plan_id as any)?._id,
-      name: (user.plan_id as any)?.display_name,
-      slug: (user.plan_id as any)?.slug,
-    };
-
-    // If active via coupon, override plan info
-    if (user.subscription_status === 'active' && !user.stripeSubscriptionId) {
-      const lastRedemption = await CouponRedemption.findOne({ user_id: user._id }).sort({ redeemed_at: -1 });
-      if (lastRedemption) {
-        planInfo = {
-          id: lastRedemption.coupon_id as any,
-          name: planInfo.name || 'Custom Individual Plan (Coupon)',
-          slug: 'coupon-access',
-        };
-      }
-    }
+    // Get complete subscription details using helper
+    const subscriptionDetails = await getSubscriptionDetails(user);
 
     res.json({
-      data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          avatar: user.avatar,
-          role: user.role,
-          status: user.status,
-          onboardingPhase: user.onboardingPhase,
-          phaseCompletedAt: user.phaseCompletedAt,
-          lastActivePhase: user.lastActivePhase,
-        },
-        plan: planInfo,
-        subscription: {
-          status: user.subscription_status,
-          ends_at: user.subscription_ends_at,
-          grace_period_until: user.grace_period_until,
-        },
-        entitlements, // Fresh entitlement snapshot
-      },
+      data: subscriptionDetails,
     });
   } catch (error) {
     next(error);
@@ -397,21 +301,13 @@ export const processPayment = async (req: Request, res: Response, next: NextFunc
       { $set: { revoked: true } }
     );
 
-    // Generate new entitlement snapshot
-    const entitlements = await resolveUserEntitlements(user._id.toString());
+    // Get complete subscription details using standard helper
+    const subscriptionDetails = await getSubscriptionDetails(user);
 
     res.json({
       data: {
         payment,
-        subscription: {
-          status: user.subscription_status,
-          ends_at: user.subscription_ends_at,
-        },
-        user: {
-          id: user._id,
-          onboardingPhase: user.onboardingPhase,
-        },
-        entitlements, // New entitlement snapshot
+        ...subscriptionDetails,
         message: 'Payment successful! Subscription activated.',
       },
     });

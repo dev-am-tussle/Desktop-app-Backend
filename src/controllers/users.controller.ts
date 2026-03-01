@@ -337,13 +337,11 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
     // Get complete subscription details using helper
     const subscriptionDetails = await getSubscriptionDetails(user);
 
-    // Generate entitlement snapshot for new user
-    let entitlementSnapshot = null;
+    // Warm up entitlement snapshot for new user (caches for offline app)
     try {
-      entitlementSnapshot = await entitlementsService.resolveUserEntitlements(user._id);
+      await entitlementsService.resolveUserEntitlements(user._id);
     } catch (error: any) {
       console.warn('Failed to generate entitlement snapshot during registration:', error.message);
-      // Continue without entitlements - user can sync later
     }
 
     // Calculate session expiry (30 days for trial)
@@ -376,18 +374,7 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
 
     res.status(201).json({
       data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          status: user.status,
-          subscriptionStatus: user.subscription_status,
-          subscription: subscriptionDetails,
-          trialEndsAt: user.subscription_ends_at,
-          createdAt: user.createdAt,
-          consent: user.consent,
-        },
+        ...subscriptionDetails,
         authentication: {
           sessionToken,
           refreshToken,
@@ -395,17 +382,6 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
           sessionDuration: `${sessionExpiryDays} days`,
           message: 'Use sessionToken for offline app authentication',
         },
-        entitlements: entitlementSnapshot ? {
-          capabilities: entitlementSnapshot.entitlements.capabilities,
-          limits: entitlementSnapshot.entitlements.limits,
-          resources: entitlementSnapshot.entitlements.resources,
-          deployment: entitlementSnapshot.entitlements.deployment,
-          support: entitlementSnapshot.entitlements.support,
-          issued_at: entitlementSnapshot.issued_at,
-          valid_until: entitlementSnapshot.valid_until,
-          offline_allowed: entitlementSnapshot.offline_allowed,
-          signature: entitlementSnapshot.signature,
-        } : null,
         nextSteps: {
           step1: 'Download Gemma model (default)',
           step2: 'Choose subscription plan or continue with trial',
@@ -489,30 +465,16 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
       { expiresIn: '90d' }
     );
 
-    // Generate entitlement snapshot
-    let entitlementSnapshot = null;
+    // Ensure entitlement snapshot is generated (caches for offline use)
     try {
-      entitlementSnapshot = await entitlementsService.resolveUserEntitlements(user._id);
+      await entitlementsService.resolveUserEntitlements(user._id);
     } catch (error: any) {
       console.warn('Failed to generate entitlement snapshot:', error.message);
-      // Continue without entitlements if service fails
     }
 
     res.json({
       data: {
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          status: user.status,
-          lastSeen: user.lastSeen,
-          tags: user.tags || [],
-          onboardingPhase: user.onboardingPhase,
-          createdAt: user.createdAt,
-          consent: user.consent,
-        },
-        subscription: subscriptionDetails,
+        ...subscriptionDetails,
         authentication: {
           sessionToken,
           refreshToken,
@@ -520,17 +482,6 @@ export const loginUser = async (req: Request, res: Response, next: NextFunction)
           sessionDuration: `${sessionExpiryDays} days`,
           message: 'Use sessionToken for offline app authentication',
         },
-        entitlements: entitlementSnapshot ? {
-          capabilities: entitlementSnapshot.entitlements.capabilities,
-          limits: entitlementSnapshot.entitlements.limits,
-          resources: entitlementSnapshot.entitlements.resources,
-          deployment: entitlementSnapshot.entitlements.deployment,
-          support: entitlementSnapshot.entitlements.support,
-          issued_at: entitlementSnapshot.issued_at,
-          valid_until: entitlementSnapshot.valid_until,
-          offline_allowed: entitlementSnapshot.offline_allowed,
-          signature: entitlementSnapshot.signature,
-        } : null,
       },
     });
   } catch (error) {
@@ -607,14 +558,12 @@ export const refreshSession = async (req: Request, res: Response, next: NextFunc
 
     res.json({
       data: {
-        sessionToken,
-        expiresAt: sessionExpiresAt.toISOString(),
-        sessionDuration: `${sessionExpiryDays} days`,
-        user: {
-          id: user._id,
-          subscriptionStatus,
+        ...subscriptionDetails,
+        authentication: {
+          sessionToken,
+          expiresAt: sessionExpiresAt.toISOString(),
+          sessionDuration: `${sessionExpiryDays} days`,
         },
-        subscription: subscriptionDetails,
       },
     });
   } catch (error) {
@@ -640,9 +589,6 @@ export const verifySession = async (req: Request, res: Response, next: NextFunct
       throw new AppError('Account has been disabled', 403, 'ACCOUNT_DISABLED');
     }
 
-    // Get subscription status from user
-    const subscriptionStatus = user.subscription_status || 'none';
-
     // Calculate remaining session time
     const tokenExp = req.user?.exp || 0;
     const now = Math.floor(Date.now() / 1000);
@@ -654,19 +600,12 @@ export const verifySession = async (req: Request, res: Response, next: NextFunct
 
     res.json({
       data: {
-        valid: true,
-        user: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          subscriptionStatus,
-          status: user.status,
-        },
-        subscription: subscriptionDetails,
+        ...subscriptionDetails,
         session: {
           expiresAt: new Date(tokenExp * 1000).toISOString(),
           remainingDays,
           needsRenewal: remainingDays < 7,
+          valid: true,
         },
       },
     });

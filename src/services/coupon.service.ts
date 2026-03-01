@@ -96,6 +96,13 @@ class CouponService {
         user.subscription_status = 'active';
         user.subscription_ends_at = expiryDate;
         user.stripeSubscriptionId = undefined; 
+        
+        // Add coupon-user tag if not already present
+        if (!user.tags) user.tags = [];
+        if (!user.tags.includes('coupon-user')) {
+          user.tags.push('coupon-user');
+        }
+        
         await user.save();
 
         // 3. Record Redemption
@@ -159,6 +166,13 @@ class CouponService {
         user.subscription_status = 'active';
         user.subscription_ends_at = expiryDate;
         user.stripeSubscriptionId = undefined;
+        
+        // Add coupon-user tag if not already present
+        if (!user.tags) user.tags = [];
+        if (!user.tags.includes('coupon-user')) {
+          user.tags.push('coupon-user');
+        }
+        
         await user.save();
 
         // 3. Record Redemption

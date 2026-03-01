@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import CouponService from '../services/coupon.service';
 import { AppError } from '../middleware/errorHandler';
+import { User } from '../models';
+import { getSubscriptionDetails } from '../utils/userHelpers';
 
 /**
  * Redeem Coupon
@@ -17,19 +19,19 @@ export const redeemCoupon = async (req: Request, res: Response, next: NextFuncti
 
     const result = await CouponService.redeemCoupon(userId, coupon_code, device_id);
 
-    // Remove definitions from the entitlement snapshot as per user request
-    if (result.snapshot && (result.snapshot as any).definitions) {
-      delete (result.snapshot as any).definitions;
-    } 
+    // Fetch refreshed user to get updated plan_id and subscription state
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new AppError('User not found after redemption', 404, 'USER_NOT_FOUND');
+    }
+
+    // Get complete subscription details using standard architecture
+    const subscriptionDetails = await getSubscriptionDetails(user);
 
     res.status(200).json({
       success: true,
       message: result.message,
-      data: {
-        plan: result.plan,
-        expires_at: result.expires_at,
-        entitlement: result.snapshot,
-      }
+      data: subscriptionDetails
     });
   } catch (error) {
     next(error);
