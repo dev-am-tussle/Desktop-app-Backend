@@ -18,6 +18,7 @@ export const SUPPORTED_PROVIDERS: readonly ProviderName[] = [
     'anthropic',
     'google',
     'perplexity',
+    'groq',
 ] as const;
 
 /**
@@ -28,6 +29,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<ProviderName, string> = {
     anthropic: 'Anthropic',
     google: 'Google AI',
     perplexity: 'Perplexity AI',
+    groq: 'Groq',
 };
 
 /**
@@ -38,6 +40,7 @@ export const PROVIDER_BASE_URLS: Record<ProviderName, string> = {
     anthropic: 'https://api.anthropic.com/v1',
     google: 'https://generativelanguage.googleapis.com/v1beta',
     perplexity: 'https://api.perplexity.ai',
+    groq: 'https://api.groq.com/openai/v1',
 };
 
 /**

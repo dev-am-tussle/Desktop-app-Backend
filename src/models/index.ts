@@ -28,6 +28,7 @@ import { CouponRedemption } from './CouponRedemption.model';
 // NEW: FX Rates Management
 import FXRate from './FXRate.model';
 import Support from './Support.model';
+import RecommendedModel from './RecommendedModel.model';
 
 // Export all models
 export {
@@ -53,6 +54,8 @@ export {
   FXRate,
   // Support
   Support,
+  // Recommended Models
+  RecommendedModel,
 };
 
 // Export types
@@ -68,6 +71,7 @@ export type { IInstalledModel } from './InstalledModel.model';
 export type { IApiKey } from './ApiKey.model';
 export type { IConversation } from './Conversation.model';
 export type { ISupport } from './Support.model';
+export type { IRecommendedModel } from './RecommendedModel.model';
 
 // Entitlement System Types
 export type { IEntitlementDefinition } from './EntitlementDefinition.model';

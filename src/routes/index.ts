@@ -20,6 +20,7 @@ import entitlementsRoutes from './entitlements.routes';
 import couponsRoutes from './coupons.routes';
 import fxRatesRoutes from './fxRates.routes';
 import supportRoutes from './support.routes';
+import recommendedModelsRoutes from './recommendedModels.routes';
 // Note: webhookRoutes mounted separately in server.ts before JSON parser
 
 const router = Router();
@@ -50,6 +51,7 @@ router.use('/fx-rates', fxRatesRoutes); // FX rates public endpoint (no auth req
 router.use('/public', publicRoutes); // Public desktop app routes
 router.use('/dashboard', dashboardRoutes); // Dashboard analytics routes
 router.use('/support', supportRoutes); // Support ticket routes
+router.use('/recommended-models', recommendedModelsRoutes); // Recommended models routes
 router.use('/providers', providersRoutes); // External API provider routes
 router.use('/chat', chatRoutes); // Chat completion routes
 router.use('/entitlements', entitlementsRoutes); // Entitlements management routes

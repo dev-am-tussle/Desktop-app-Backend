@@ -70,6 +70,7 @@ async function seedPlanEntitlements() {
       { plan_id: freePlan._id, entitlement_key: 'limits.prompts_saved', value: 5 },
       { plan_id: freePlan._id, entitlement_key: 'limits.models_local', value: 1 },
       { plan_id: freePlan._id, entitlement_key: 'limits.models_api', value: 1 },
+      { plan_id: freePlan._id, entitlement_key: 'compare_model_limit', value: 2 },
       { plan_id: freePlan._id, entitlement_key: 'limits.users_max', value: 1 },
       
       // Resources
@@ -104,6 +105,7 @@ async function seedPlanEntitlements() {
       { plan_id: proPlan._id, entitlement_key: 'limits.prompts_saved', value: 100 },
       { plan_id: proPlan._id, entitlement_key: 'limits.models_local', value: 5 },
       { plan_id: proPlan._id, entitlement_key: 'limits.models_api', value: 5 },
+      { plan_id: proPlan._id, entitlement_key: 'compare_model_limit', value: 3 },
       { plan_id: proPlan._id, entitlement_key: 'limits.users_max', value: 1 },
       
       // Resources
@@ -138,6 +140,7 @@ async function seedPlanEntitlements() {
       { plan_id: businessPlan._id, entitlement_key: 'limits.prompts_saved', value: 'unlimited' },
       { plan_id: businessPlan._id, entitlement_key: 'limits.models_local', value: 10 },
       { plan_id: businessPlan._id, entitlement_key: 'limits.models_api', value: 10 },
+      { plan_id: businessPlan._id, entitlement_key: 'compare_model_limit', value: 4 },
       { plan_id: businessPlan._id, entitlement_key: 'limits.users_max', value: 3 },
       
       // Resources
@@ -171,6 +174,7 @@ async function seedPlanEntitlements() {
       { plan_id: enterprisePlan._id, entitlement_key: 'limits.file_size_mb', value: 'unlimited' },
       { plan_id: enterprisePlan._id, entitlement_key: 'limits.prompts_saved', value: 'unlimited' },
       { plan_id: enterprisePlan._id, entitlement_key: 'limits.models_local', value: 'unlimited' },
+      { plan_id: enterprisePlan._id, entitlement_key: 'compare_model_limit', value: 5 },
       { plan_id: enterprisePlan._id, entitlement_key: 'limits.models_api', value: 'unlimited' },
       { plan_id: enterprisePlan._id, entitlement_key: 'limits.users_max', value: 'unlimited' },
       
