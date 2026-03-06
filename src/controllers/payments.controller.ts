@@ -298,6 +298,14 @@ export const createCheckoutSession = async (req: Request, res: Response, next: N
 
     const { amount, stripe_price_id: stripePriceId } = priceData;
 
+    // Update user onboarding phase to plan_selection
+    await User.findByIdAndUpdate(userId, {
+      $set: {
+        onboardingPhase: 'plan_selection',
+        'phaseCompletedAt.planSelection': new Date(),
+      },
+    });
+
     if (!stripePriceId) {
       throw new AppError(
         `Plan not configured for Stripe ${billingPeriod} payments in ${currency}`,

@@ -324,6 +324,9 @@ export const registerUser = async (req: Request, res: Response, next: NextFuncti
       subscription_status: 'trial',
       subscription_ends_at: trialEnd,
       onboardingPhase: 'account_created',
+      phaseCompletedAt: {
+        accountCreated: new Date(),
+      },
       tags: ['new-user'],
       preferences: {
         defaultModel: 'gemma',

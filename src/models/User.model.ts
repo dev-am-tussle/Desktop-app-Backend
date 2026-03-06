@@ -39,6 +39,8 @@ export interface IUser extends Document {
     termsAcceptedAt: Date;
     termsVersion?: string;
   };
+  // Telemetry Sync Meta
+  last_telemetry_sync?: Date;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -154,10 +156,15 @@ const UserSchema: Schema<IUser> = new Schema(
         type: Date,
         default: null
       },
-      termsVersion: {
+    termsVersion: {
         type: String,
         default: 'v1'
       },
+    },
+    // Telemetry Sync Meta
+    last_telemetry_sync: {
+      type: Date,
+      default: null
     },
   },
   {

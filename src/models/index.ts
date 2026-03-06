@@ -22,6 +22,7 @@ import EntitlementDefinition from './EntitlementDefinition.model';
 import PlanEntitlement from './PlanEntitlement.model';
 import UserEntitlementOverride from './UserEntitlementOverride.model';
 import EntitlementCache from './EntitlementCache.model';
+import UserTelemetry from './UserTelemetry.model';
 import { Coupon } from './Coupon.model';
 import { CouponRedemption } from './CouponRedemption.model';
 
@@ -48,6 +49,7 @@ export {
   PlanEntitlement,
   UserEntitlementOverride,
   EntitlementCache,
+  UserTelemetry,
   Coupon,
   CouponRedemption,
   // FX Rates Management

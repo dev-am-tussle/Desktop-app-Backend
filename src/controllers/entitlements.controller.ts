@@ -3,6 +3,7 @@ import entitlementsService from '../services/entitlements.service';
 import EntitlementDefinition from '../models/EntitlementDefinition.model';
 import { User } from '../models';
 import { getSubscriptionDetails } from '../utils/userHelpers';
+import * as telemetryController from './telemetry.controller';
 
 /**
  * Sync/Regenerate entitlement snapshot
@@ -11,10 +12,18 @@ import { getSubscriptionDetails } from '../utils/userHelpers';
 export const syncEntitlements = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user?.userId;
+    const { payload, telemetry } = req.body; // Check both keys for flexibility
+    const telemetryData = payload || telemetry;
     
     if (!userId) {
       res.status(401).json({ error: 'Unauthorized' });
       return;
+    }
+
+    // Process Telemetry Sync (Optional) - Call from Entitlements Poll
+    // If payload/telemetry object exists in body, we save it to the separate collection
+    if (telemetryData) {
+      await telemetryController.syncUserTelemetry(userId, telemetryData);
     }
 
     // Revoke old caches and generate fresh snapshot
