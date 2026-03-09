@@ -23,6 +23,7 @@ import {
   getPlanEntitlements,
   updatePlanStatus,
 } from '../controllers/admin.controller';
+import { getUserTelemetry, getLatestUserTelemetry } from '../controllers/admin.telemetry.controller';
 import { authenticateAdminToken, requireAdminRole } from '../middleware/auth';
 import { validate } from '../middleware/validation';
 import { writeLimiter, readLimiter } from '../middleware/rateLimiter';
@@ -369,6 +370,32 @@ router.delete(
   writeLimiter,
   authenticateAdminToken,
   deleteCoupon
+);
+
+// ============================================
+// USER TELEMETRY ROUTES (ADMIN ONLY)
+// ============================================
+
+/**
+ * GET /admin/users/:id/telemetry
+ * Get all telemetry history for a specific user
+ */
+router.get(
+  '/users/:id/telemetry',
+  readLimiter,
+  authenticateAdminToken,
+  getUserTelemetry
+);
+
+/**
+ * GET /admin/users/:id/telemetry/latest
+ * Get only the latest telemetry snapshot for a user
+ */
+router.get(
+  '/users/:id/telemetry/latest',
+  readLimiter,
+  authenticateAdminToken,
+  getLatestUserTelemetry
 );
 
 export default router;

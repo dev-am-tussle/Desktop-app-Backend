@@ -10,18 +10,18 @@ import {
 import { getProviderBaseUrl } from '../../config/providers.config';
 
 // ============================================
-// GROQ PROVIDER ADAPTER (OpenAI Compatible)
+// GROK (xAI) PROVIDER ADAPTER (OpenAI Compatible)
 // ============================================
 
-export class GroqAdapter extends BaseProviderAdapter {
-    private baseURL = getProviderBaseUrl('groq');
+export class GrokAdapter extends BaseProviderAdapter {
+    private baseURL = getProviderBaseUrl('grok');
 
     constructor(apiKey: string) {
-        super(apiKey, 'groq');
+        super(apiKey, 'grok');
     }
 
     /**
-     * Validate Groq API key by fetching models
+     * Validate xAI API key by fetching models
      */
     async validateApiKey(): Promise<ProviderValidationResponse> {
         try {
@@ -35,7 +35,7 @@ export class GroqAdapter extends BaseProviderAdapter {
 
             return {
                 valid: true,
-                provider: 'groq',
+                provider: 'grok',
                 message: 'API key is valid',
                 details: {
                     models: modelCount,
@@ -45,7 +45,7 @@ export class GroqAdapter extends BaseProviderAdapter {
             if (error.response?.status === 401) {
                 return {
                     valid: false,
-                    provider: 'groq',
+                    provider: 'grok',
                     message: 'Invalid API key',
                 };
             }
@@ -54,7 +54,7 @@ export class GroqAdapter extends BaseProviderAdapter {
     }
 
     /**
-     * Fetch available Groq models
+     * Fetch available Grok models
      */
     async fetchModels(): Promise<ModelFetchResponse> {
         try {
@@ -67,12 +67,12 @@ export class GroqAdapter extends BaseProviderAdapter {
             const models: ModelInfo[] = response.data.data.map((model: any) => ({
                 id: model.id,
                 name: model.id,
-                description: `Groq ${model.id}`,
+                description: `xAI ${model.id}`,
                 contextWindow: this.getContextWindow(model.id),
             }));
 
             return {
-                provider: 'groq',
+                provider: 'grok',
                 models,
                 count: models.length,
             };
@@ -82,7 +82,7 @@ export class GroqAdapter extends BaseProviderAdapter {
     }
 
     /**
-     * Send chat completion request to Groq
+     * Send chat completion request to Grok
      */
     async sendChatCompletion(
         model: string,
@@ -118,7 +118,7 @@ export class GroqAdapter extends BaseProviderAdapter {
     }
 
     /**
-     * Stream chat completion from Groq
+     * Stream chat completion from Grok
      */
     async * streamChatCompletion(
         model: string,
@@ -150,7 +150,8 @@ export class GroqAdapter extends BaseProviderAdapter {
             const stream = response.data;
 
             for await (const chunk of stream) {
-                const lines = chunk.toString().split('\n');
+                const chunkStr = chunk.toString();
+                const lines = chunkStr.split('\n');
                 for (const line of lines) {
                     if (line.trim() === '') continue;
                     if (line.includes('[DONE]')) return;
@@ -175,13 +176,13 @@ export class GroqAdapter extends BaseProviderAdapter {
     }
 
     /**
-     * Normalize Groq response to standard format
+     * Normalize Grok response to standard format
      */
     protected normalizeResponse(response: any): ChatCompletionResponse {
         const choice = response.choices[0];
 
         return {
-            provider: 'groq',
+            provider: 'grok',
             model: response.model,
             message: {
                 role: choice.message.role,
@@ -197,17 +198,14 @@ export class GroqAdapter extends BaseProviderAdapter {
     }
 
     /**
-     * Get context window size for Groq models
+     * Get context window size for Grok models
      */
     private getContextWindow(modelId: string): number {
         const contextWindows: Record<string, number> = {
-            'llama3-8b': 8192,
-            'llama3-70b': 8192,
-            'mixtral-8x7b': 32768,
-            'gemma-7b': 8192,
-            'gemma2-9b': 8192,
-            'llama-3.1': 128000,
-            'llama-3.2': 128000,
+            'grok-4': 131072,
+            'grok-2': 131072,
+            'grok-2-mini': 131072,
+            'grok-beta': 131072,
         };
 
         for (const [key, value] of Object.entries(contextWindows)) {
@@ -216,6 +214,6 @@ export class GroqAdapter extends BaseProviderAdapter {
             }
         }
 
-        return 8192; // Default
+        return 131072; // Default for xAI Grok
     }
 }

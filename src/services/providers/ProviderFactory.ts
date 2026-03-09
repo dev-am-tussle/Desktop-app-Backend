@@ -4,7 +4,7 @@ import { OpenAIAdapter } from './OpenAIAdapter';
 import { AnthropicAdapter } from './AnthropicAdapter';
 import { GoogleAdapter } from './GoogleAdapter';
 import { PerplexityAdapter } from './PerplexityAdapter';
-import { GroqAdapter } from './GroqAdapter';
+import { GrokAdapter } from './GrokAdapter';
 import { getSupportedProviders, isProviderSupported } from '../../config/providers.config';
 
 // ============================================
@@ -35,8 +35,8 @@ export class ProviderFactory {
             case 'perplexity':
                 return new PerplexityAdapter(apiKey);
 
-            case 'groq':
-                return new GroqAdapter(apiKey);
+            case 'grok':
+                return new GrokAdapter(apiKey);
 
             default:
                 throw new Error(`Unsupported provider: ${provider}`);

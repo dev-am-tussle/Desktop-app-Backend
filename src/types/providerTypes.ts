@@ -5,7 +5,7 @@
 /**
  * Supported AI Providers
  */
-export type ProviderName = 'openai' | 'anthropic' | 'google' | 'perplexity' | 'groq';
+export type ProviderName = 'openai' | 'anthropic' | 'google' | 'perplexity' | 'grok';
 
 /**
  * Context strategies for chat completions
