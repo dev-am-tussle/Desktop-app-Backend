@@ -4,6 +4,7 @@ import SubscriptionPlan from '../models/SubscriptionPlan.model';
 import { AppError } from '../middleware/errorHandler';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import entitlementsService from '../services/entitlements.service';
 import { getSubscriptionDetails } from '../utils/userHelpers';
 
@@ -612,6 +613,83 @@ export const verifySession = async (req: Request, res: Response, next: NextFunct
         },
       },
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Forgot Password
+ * Generates a reset token and sends it via response (Note: In production should be sent via Email)
+ */
+export const forgotPassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { email } = req.body;
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+
+    if (!user) {
+      // For security reasons, don't reveal if user exists or not
+      res.json({
+        success: true,
+        message: 'If an account with that email exists, a reset token has been generated.',
+      });
+      return;
+    }
+
+    // Generate random reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+    // Set token and expiry (1 hour)
+    user.passwordResetToken = hashedToken;
+    user.passwordResetExpires = new Date(Date.now() + 3600000); // 1 hour
+
+    await user.save();
+
+    // NOTE: In a real-world scenario, you would send this token via email.
+    // Since we don't have an email service set up, we return it in the response for demo/testing.
+    res.json({
+      success: true,
+      message: 'Password reset token generated.',
+      data: {
+        resetToken, // THIS SHOULD ONLY BE SENT VIA EMAIL IN PRODUCTION
+      },
+    });
+    return;
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Reset Password (Simple version)
+ * Resets password using email and new password directly
+ */
+export const resetPassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const { email, password } = req.body;
+
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+
+    if (!user) {
+      throw new AppError('User not found with this email', 404, 'USER_NOT_FOUND');
+    }
+
+    // Set new password (will be hashed by pre-save hook in User model)
+    user.password = password;
+    
+    // Clear reset tokens if they exist from previous attempt
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Password has been updated successfully.',
+    });
+    return;
   } catch (error) {
     next(error);
   }

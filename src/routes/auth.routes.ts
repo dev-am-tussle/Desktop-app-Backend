@@ -57,6 +57,26 @@ const refreshTokenValidation = [
     .withMessage('Refresh token is required'),
 ];
 
+const forgotPasswordValidation = [
+  body('email')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Valid email is required'),
+];
+
+const resetPasswordValidation = [
+  body('email')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Valid email is required'),
+  body('password')
+    .isString()
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number'),
+];
+
 // ============================================
 // ROUTES
 // ============================================
@@ -98,6 +118,30 @@ router.post(
   refreshTokenValidation,
   validate,
   usersController.refreshSession
+);
+
+/**
+ * POST /api/auth/forgot-password
+ * Request password reset token
+ */
+router.post(
+  '/forgot-password',
+  writeLimiter,
+  forgotPasswordValidation,
+  validate,
+  usersController.forgotPassword
+);
+
+/**
+ * PATCH /api/auth/reset-password
+ * Reset password using email directly (Simple version)
+ */
+router.patch(
+  '/reset-password',
+  writeLimiter,
+  resetPasswordValidation,
+  validate,
+  usersController.resetPassword
 );
 
 /**

@@ -41,6 +41,8 @@ export interface IUser extends Document {
   };
   // Telemetry Sync Meta
   last_telemetry_sync?: Date;
+  passwordResetToken?: string;
+  passwordResetExpires?: Date;
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
@@ -165,6 +167,16 @@ const UserSchema: Schema<IUser> = new Schema(
     last_telemetry_sync: {
       type: Date,
       default: null
+    },
+    passwordResetToken: {
+      type: String,
+      default: null,
+      select: false,
+    },
+    passwordResetExpires: {
+      type: Date,
+      default: null,
+      select: false,
     },
   },
   {
