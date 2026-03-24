@@ -26,29 +26,23 @@ export class AnthropicAdapter extends BaseProviderAdapter {
      */
     async validateApiKey(): Promise<ProviderValidationResponse> {
         try {
-            // Test with a minimal message request
-            await axios.post(
-                `${this.baseURL}/messages`,
-                {
-                    model: 'claude-3-haiku-20240307',
-                    max_tokens: 1,
-                    messages: [{ role: 'user', content: 'Hi' }],
+            // Use the new /models endpoint to validate API key
+            // This is cleaner than making a dummy chat request
+            const response = await axios.get(`${this.baseURL}/models`, {
+                headers: {
+                    'x-api-key': this.apiKey,
+                    'anthropic-version': this.apiVersion,
                 },
-                {
-                    headers: {
-                        'x-api-key': this.apiKey,
-                        'anthropic-version': this.apiVersion,
-                        'Content-Type': 'application/json',
-                    },
-                }
-            );
+            });
+
+            const modelsCount = response.data?.data?.length || 0;
 
             return {
                 valid: true,
                 provider: 'anthropic',
                 message: 'API key is valid',
                 details: {
-                    models: this.getAvailableModels().length,
+                    models: modelsCount,
                 },
             };
         } catch (error: any) {
@@ -56,25 +50,71 @@ export class AnthropicAdapter extends BaseProviderAdapter {
                 return {
                     valid: false,
                     provider: 'anthropic',
-                    message: 'Invalid API key',
+                    message: 'The Anthropic API key provided is invalid or has expired.',
                 };
             }
-            this.handleError(error);
+            
+            if (error.response?.status === 403) {
+                return {
+                    valid: false,
+                    provider: 'anthropic',
+                    message: 'Access denied. Your Anthropic API key does not have permission to use this model or service.',
+                };
+            }
+
+            if (error.response?.status === 429) {
+                return {
+                    valid: false,
+                    provider: 'anthropic',
+                    message: 'Rate limit exceeded for Anthropic. Please check your account billing/tier or wait a moment.',
+                };
+            }
+
+            return {
+                valid: false,
+                provider: 'anthropic',
+                message: error.response?.data?.error?.message || error.message || 'An error occurred while validating the Anthropic API key.',
+            };
         }
     }
 
     /**
-     * Fetch available Anthropic models
-     * Note: Anthropic doesn't have a models endpoint, so we return a predefined list
+     * Fetch available Anthropic models dynamically from the API
      */
     async fetchModels(): Promise<ModelFetchResponse> {
-        const models = this.getAvailableModels();
+        try {
+            const response = await axios.get(`${this.baseURL}/models`, {
+                headers: {
+                    'x-api-key': this.apiKey,
+                    'anthropic-version': this.apiVersion,
+                },
+            });
 
-        return {
-            provider: 'anthropic',
-            models,
-            count: models.length,
-        };
+            const models: ModelInfo[] = response.data.data.map((model: any) => ({
+                id: model.id,
+                name: model.display_name || model.id,
+                contextWindow: 200000, // Default for most Claude 3 models
+            }));
+
+            return {
+                provider: 'anthropic',
+                models,
+                count: models.length,
+            };
+        } catch (error: any) {
+            // Fallback to hardcoded models if dynamic fetch fails (legacy support)
+            const fallbackModels = this.getAvailableModels().map(m => ({
+                id: m.id,
+                name: m.name,
+                contextWindow: (m as any).context_window || 200000
+            }));
+            
+            return {
+                provider: 'anthropic',
+                models: fallbackModels,
+                count: fallbackModels.length,
+            };
+        }
     }
 
     /**
@@ -161,13 +201,13 @@ export class AnthropicAdapter extends BaseProviderAdapter {
     /**
      * Get list of available Anthropic models
      */
-    private getAvailableModels(): ModelInfo[] {
+    private getAvailableModels(): any[] {
         return [
             {
                 id: 'claude-3-5-sonnet-20241022',
                 name: 'Claude 3.5 Sonnet',
                 description: 'Most intelligent model, best for complex tasks',
-                contextWindow: 200000,
+                context_window: 200000,
                 pricing: {
                     input: 3.0,
                     output: 15.0,
@@ -177,7 +217,7 @@ export class AnthropicAdapter extends BaseProviderAdapter {
                 id: 'claude-3-5-haiku-20241022',
                 name: 'Claude 3.5 Haiku',
                 description: 'Fastest model, best for quick responses',
-                contextWindow: 200000,
+                context_window: 200000,
                 pricing: {
                     input: 0.8,
                     output: 4.0,
@@ -187,7 +227,7 @@ export class AnthropicAdapter extends BaseProviderAdapter {
                 id: 'claude-3-opus-20240229',
                 name: 'Claude 3 Opus',
                 description: 'Previous generation flagship model',
-                contextWindow: 200000,
+                context_window: 200000,
                 pricing: {
                     input: 15.0,
                     output: 75.0,
@@ -197,7 +237,7 @@ export class AnthropicAdapter extends BaseProviderAdapter {
                 id: 'claude-3-sonnet-20240229',
                 name: 'Claude 3 Sonnet',
                 description: 'Balanced performance and speed',
-                contextWindow: 200000,
+                context_window: 200000,
                 pricing: {
                     input: 3.0,
                     output: 15.0,
@@ -207,7 +247,7 @@ export class AnthropicAdapter extends BaseProviderAdapter {
                 id: 'claude-3-haiku-20240307',
                 name: 'Claude 3 Haiku',
                 description: 'Fast and cost-effective',
-                contextWindow: 200000,
+                context_window: 200000,
                 pricing: {
                     input: 0.25,
                     output: 1.25,

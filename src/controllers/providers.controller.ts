@@ -80,6 +80,21 @@ export const fetchModels = async (
             throw new AppError('Provider and API key are required', 400, 'MISSING_FIELDS');
         }
 
+        // Step 1: Validate API key first
+        const validationResult = await ProviderValidationService.validateProvider({
+            provider,
+            apiKey,
+        });
+
+        if (!validationResult.valid) {
+            throw new AppError(
+                validationResult.message || `API key validation failed for ${provider}`, 
+                401, 
+                'INVALID_API_KEY'
+            );
+        }
+
+        // Step 2: Fetch available models
         const result = await ModelFetchingService.fetchModels({
             provider,
             apiKey,

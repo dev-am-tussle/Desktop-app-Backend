@@ -46,29 +46,52 @@ export class GrokAdapter extends BaseProviderAdapter {
                 return {
                     valid: false,
                     provider: 'grok',
-                    message: 'Invalid API key',
+                    message: 'The Grok (xAI) API key provided is invalid or has expired.',
                 };
             }
-            this.handleError(error);
+            
+            if (error.response?.status === 403) {
+                return {
+                    valid: false,
+                    provider: 'grok',
+                    message: 'Access denied. Your Grok API key does not have permission to use this service.',
+                };
+            }
+
+            if (error.response?.status === 429) {
+                return {
+                    valid: false,
+                    provider: 'grok',
+                    message: 'Rate limit exceeded for Grok (xAI). Please check your account billing/tier or wait a moment.',
+                };
+            }
+
+            return {
+                valid: false,
+                provider: 'grok',
+                message: error.response?.data?.error?.message || error.message || 'An error occurred while validating the Grok API key.',
+            };
         }
     }
 
     /**
-     * Fetch available Grok models
+     * Fetch available Grok models using the language-models endpoint
      */
     async fetchModels(): Promise<ModelFetchResponse> {
         try {
-            const response = await axios.get(`${this.baseURL}/models`, {
+            const response = await axios.get(`${this.baseURL}/language-models`, {
                 headers: {
                     Authorization: `Bearer ${this.apiKey}`,
                 },
             });
 
-            const models: ModelInfo[] = response.data.data.map((model: any) => ({
+            // According to the docs, models might be in response.data.models
+            const modelsData = response.data.models || response.data.data || [];
+
+            const models: ModelInfo[] = modelsData.map((model: any) => ({
                 id: model.id,
                 name: model.id,
-                description: `xAI ${model.id}`,
-                contextWindow: this.getContextWindow(model.id),
+                contextWindow: model.context_window || this.getContextWindow(model.id),
             }));
 
             return {
@@ -76,13 +99,37 @@ export class GrokAdapter extends BaseProviderAdapter {
                 models,
                 count: models.length,
             };
-        } catch (error) {
-            this.handleError(error);
+        } catch (error: any) {
+            // Fallback to /models if /language-models fails or to hardcoded
+            try {
+                const altResponse = await axios.get(`${this.baseURL}/models`, {
+                    headers: { Authorization: `Bearer ${this.apiKey}` },
+                });
+                const altModels = altResponse.data.data.map((m: any) => ({
+                    id: m.id,
+                    name: m.id,
+                    contextWindow: this.getContextWindow(m.id)
+                }));
+                return { provider: 'grok', models: altModels, count: altModels.length };
+            } catch (e) {
+                // Return standard fallback models
+                const fallbackModels = [
+                    { id: 'grok-2-1212', name: 'Grok 2', contextWindow: 131072 },
+                    { id: 'grok-2-vision-1212', name: 'Grok 2 Vision', contextWindow: 131072 },
+                    { id: 'grok-beta', name: 'Grok Beta', contextWindow: 131072 }
+                ];
+
+                return {
+                    provider: 'grok',
+                    models: fallbackModels,
+                    count: fallbackModels.length,
+                };
+            }
         }
     }
 
     /**
-     * Send chat completion request to Grok
+     * Send chat completion request to Grok using the Responses API
      */
     async sendChatCompletion(
         model: string,
@@ -94,11 +141,12 @@ export class GrokAdapter extends BaseProviderAdapter {
         }
     ): Promise<ChatCompletionResponse> {
         try {
+            // Using the new /responses endpoint as per docs
             const response = await axios.post(
-                `${this.baseURL}/chat/completions`,
+                `${this.baseURL}/responses`,
                 {
                     model,
-                    messages,
+                    input: messages, // The docs show "input" instead of "messages"
                     temperature: options?.temperature ?? 0.7,
                     max_tokens: options?.maxTokens,
                     stream: options?.stream ?? false,
@@ -179,21 +227,24 @@ export class GrokAdapter extends BaseProviderAdapter {
      * Normalize Grok response to standard format
      */
     protected normalizeResponse(response: any): ChatCompletionResponse {
-        const choice = response.choices[0];
+        // Grok Responses API returns "output_text" or uses OpenAI format
+        const content = response.output_text || response.choices?.[0]?.message?.content || '';
+        const model = response.model || '';
+        const role = response.choices?.[0]?.message?.role || 'assistant';
 
         return {
             provider: 'grok',
-            model: response.model,
+            model: model,
             message: {
-                role: choice.message.role,
-                content: choice.message.content,
+                role: role,
+                content: content,
             },
             usage: {
-                promptTokens: response.usage?.prompt_tokens || 0,
-                completionTokens: response.usage?.completion_tokens || 0,
+                promptTokens: response.usage?.input_tokens || response.usage?.prompt_tokens || 0,
+                completionTokens: response.usage?.output_tokens || response.usage?.completion_tokens || 0,
                 totalTokens: response.usage?.total_tokens || 0,
             },
-            finishReason: choice.finish_reason,
+            finishReason: response.choices?.[0]?.finish_reason || response.stop_reason,
         };
     }
 
