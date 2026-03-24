@@ -8,6 +8,8 @@ export interface IRecommendedModel extends Document {
   ram?: string;
   tag?: string;
   category: 'text' | 'vision' | 'code' | 'other';
+  provider: 'ollama' | 'gguf';
+  downloadUrl?: string;
   isPopular: boolean;
   order: number;
   isActive: boolean;
@@ -48,6 +50,17 @@ const RecommendedModelSchema: Schema<IRecommendedModel> = new Schema(
       type: String,
       enum: ['text', 'vision', 'code', 'other'],
       default: 'text',
+    },
+    provider: {
+      type: String,
+      enum: ['ollama', 'gguf'],
+      default: 'ollama',
+      required: true,
+    },
+    downloadUrl: {
+      type: String,
+      trim: true,
+      default: null,
     },
     isPopular: {
       type: Boolean,

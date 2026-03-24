@@ -58,6 +58,8 @@ export const createRecommendedModel = async (req: Request, res: Response, next: 
       size, 
       ram,
       tag,
+      provider,
+      downloadUrl,
       isPopular, 
       order, 
       isActive 
@@ -75,6 +77,8 @@ export const createRecommendedModel = async (req: Request, res: Response, next: 
       size,
       ram,
       tag,
+      provider: provider || 'ollama',
+      downloadUrl,
       isPopular,
       order,
       isActive,
