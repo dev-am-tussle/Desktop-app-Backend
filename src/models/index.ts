@@ -30,6 +30,8 @@ import { CouponRedemption } from './CouponRedemption.model';
 import FXRate from './FXRate.model';
 import Support from './Support.model';
 import RecommendedModel from './RecommendedModel.model';
+import Notification from './Notification.model';
+import NotificationRecipient from './NotificationRecipient.model';
 
 // Export all models
 export {
@@ -58,6 +60,9 @@ export {
   Support,
   // Recommended Models
   RecommendedModel,
+  // Notification
+  Notification,
+  NotificationRecipient,
 };
 
 // Export types
@@ -74,6 +79,8 @@ export type { IApiKey } from './ApiKey.model';
 export type { IConversation } from './Conversation.model';
 export type { ISupport } from './Support.model';
 export type { IRecommendedModel } from './RecommendedModel.model';
+export type { INotification } from './Notification.model';
+export type { INotificationRecipient } from './NotificationRecipient.model';
 
 // Entitlement System Types
 export type { IEntitlementDefinition } from './EntitlementDefinition.model';

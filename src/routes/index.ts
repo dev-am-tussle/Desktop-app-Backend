@@ -21,6 +21,7 @@ import couponsRoutes from './coupons.routes';
 import fxRatesRoutes from './fxRates.routes';
 import supportRoutes from './support.routes';
 import recommendedModelsRoutes from './recommendedModels.routes';
+import notificationsRoutes from './notifications.routes';
 // Note: webhookRoutes mounted separately in server.ts before JSON parser
 
 const router = Router();
@@ -52,6 +53,7 @@ router.use('/public', publicRoutes); // Public desktop app routes
 router.use('/dashboard', dashboardRoutes); // Dashboard analytics routes
 router.use('/support', supportRoutes); // Support ticket routes
 router.use('/recommended-models', recommendedModelsRoutes); // Recommended models routes
+router.use('/notifications', notificationsRoutes); // Notification routes
 router.use('/providers', providersRoutes); // External API provider routes
 router.use('/chat', chatRoutes); // Chat completion routes
 router.use('/entitlements', entitlementsRoutes); // Entitlements management routes
