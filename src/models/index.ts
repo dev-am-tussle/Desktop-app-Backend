@@ -32,6 +32,7 @@ import Support from './Support.model';
 import RecommendedModel from './RecommendedModel.model';
 import Notification from './Notification.model';
 import NotificationRecipient from './NotificationRecipient.model';
+import NotificationVersion from './NotificationVersion.model';
 
 // Export all models
 export {
@@ -63,6 +64,7 @@ export {
   // Notification
   Notification,
   NotificationRecipient,
+  NotificationVersion,
 };
 
 // Export types

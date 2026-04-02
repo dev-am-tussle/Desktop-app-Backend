@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Notification, NotificationRecipient, User } from '../models';
+import { Notification, NotificationRecipient, User, NotificationVersion } from '../models';
 
 /**
  * ADMIN: Create a new notification (Default: Draft)
@@ -16,10 +16,24 @@ export const createNotification = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: 'targetFilters required for segment targeting' });
     }
 
+    // Extract only allowed fields from req.body
+    const allowedFields = [
+      'title', 'message', 'type', 'category', 'priority', 
+      'targetType', 'targetFilters', 'targetUserIds', 'action',
+      'isDismissible', 'scheduledAt', 'expiresAt'
+    ];
+
+    const notificationData: any = {};
+    allowedFields.forEach(field => {
+      if (field in req.body) {
+        notificationData[field] = req.body[field];
+      }
+    });
+
     const notification = await Notification.create({
-      ...req.body,
-      status: req.body.status || 'draft',
-      version: 1,
+      ...notificationData,
+      status: req.body.status === 'active' ? 'active' : 'draft', // Only allow draft or active
+      version: 1, // 🔴 ALWAYS 1 for new notifications, NEVER from user input
       createdBy: req.user?.userId || req.admin?.adminId
     });
     
@@ -30,7 +44,7 @@ export const createNotification = async (req: Request, res: Response) => {
 };
 
 /**
- * ADMIN: Update and Publish (Increment Version)
+ * ADMIN: Update and Publish (Increment Global Version)
  */
 export const updateNotification = async (req: Request, res: Response) => {
   try {
@@ -40,9 +54,21 @@ export const updateNotification = async (req: Request, res: Response) => {
 
     const updates = { ...req.body };
     
-    // Increment version if moving to active status
+    // Increment GLOBAL version if moving to active status
     if (updates.status === 'active' && existing.status !== 'active') {
-      updates.version = (existing.version || 0) + 1;
+      // Get or create global version counter
+      let versionDoc = await NotificationVersion.findOne();
+      if (!versionDoc) {
+        versionDoc = await NotificationVersion.create({ currentVersion: 0 });
+      }
+      
+      // Increment global counter
+      versionDoc.currentVersion += 1;
+      versionDoc.lastIncrementedAt = new Date();
+      await versionDoc.save();
+
+      // Set notification version to new global version
+      updates.version = versionDoc.currentVersion;
       updates.publishedAt = new Date();
     }
 
@@ -120,9 +146,12 @@ export const syncNotifications = async (req: Request, res: Response) => {
 
     const notifications = await Notification.find(query).sort({ version: 1 }).limit(50);
 
-    const latestVersion = notifications.length > 0 
-      ? notifications[notifications.length - 1].version 
-      : clientVersion;
+    // Get current global version
+    let globalVersion = clientVersion;
+    const versionDoc = await NotificationVersion.findOne();
+    if (versionDoc) {
+      globalVersion = versionDoc.currentVersion;
+    }
 
     // If no new notifications, return success with empty data
     if (notifications.length === 0) {
@@ -130,7 +159,7 @@ export const syncNotifications = async (req: Request, res: Response) => {
         success: true, 
         message: 'Everything up to date', 
         data: [], 
-        latestVersion 
+        latestVersion: globalVersion 
       });
     }
 
@@ -146,7 +175,7 @@ export const syncNotifications = async (req: Request, res: Response) => {
     return res.json({ 
       success: true, 
       data: notifications, 
-      latestVersion 
+      latestVersion: globalVersion 
     });
   } catch (error: any) {
     console.error('Sync Error:', error.message);
