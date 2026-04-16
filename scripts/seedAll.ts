@@ -23,6 +23,11 @@ const seeders = [
     script: 'seedPlanEntitlements.ts',
     description: 'Map plans to entitlements',
   },
+  {
+    name: 'MCP Marketplace Connectors',
+    script: 'seedMcpConnectors.ts',
+    description: 'Seed initial marketplace tools (Google, Slack, GitHub)',
+  },
 ];
 
 async function runSeeder(seeder: typeof seeders[0]) {

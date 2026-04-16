@@ -33,6 +33,7 @@ import RecommendedModel from './RecommendedModel.model';
 import Notification from './Notification.model';
 import NotificationRecipient from './NotificationRecipient.model';
 import NotificationVersion from './NotificationVersion.model';
+import McpConnector from './McpConnector.model';
 
 // Export all models
 export {
@@ -65,6 +66,7 @@ export {
   Notification,
   NotificationRecipient,
   NotificationVersion,
+  McpConnector,
 };
 
 // Export types

@@ -25,6 +25,7 @@ export const authenticateToken = (req: Request, res: Response, next: NextFunctio
   console.log('🔐 Auth middleware - Token present:', !!token);
 
   if (!token) {
+    console.log('❌ Auth failed: No token provided');
     res.status(401).json({
       error: {
         code: 'UNAUTHORIZED',
@@ -35,12 +36,19 @@ export const authenticateToken = (req: Request, res: Response, next: NextFunctio
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JWTPayload;
-    console.log('✅ Token decoded:', { userId: decoded.userId, role: decoded.role, email: decoded.email });
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+
+    if (decoded.type === 'admin') {
+      console.log('✅ Admin Token detected in User Auth');
+      req.admin = decoded;
+      return next();
+    }
+
+    console.log('✅ User Token decoded:', { userId: decoded.userId, role: decoded.role, email: decoded.email });
     req.user = decoded;
     next();
   } catch (error) {
-    console.log('❌ Token verification failed:', error);
+    console.log('❌ User Token verification failed:', error);
     res.status(401).json({
       error: {
         code: 'UNAUTHORIZED',
