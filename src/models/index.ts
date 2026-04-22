@@ -35,6 +35,7 @@ import NotificationRecipient from './NotificationRecipient.model';
 import NotificationVersion from './NotificationVersion.model';
 import McpConnector from './McpConnector.model';
 
+import ConnectorAuthSession from './ConnectorAuthSession.model';
 // Export all models
 export {
   User,
@@ -67,6 +68,7 @@ export {
   NotificationRecipient,
   NotificationVersion,
   McpConnector,
+  ConnectorAuthSession,
 };
 
 // Export types
@@ -74,6 +76,7 @@ export type { IUser } from './User.model';
 export type { IAdmin } from './Admin.model';
 export type { ISubscriptionPlan } from './SubscriptionPlan.model';
 export type { IPayment } from './Payment.model';
+export type { IConnectorAuthSession } from './ConnectorAuthSession.model';
 export type { IPaymentSession } from './PaymentSession.model';
 export type { ILicense } from './License.model';
 export type { IModel, IModelVersion } from './Model.model';
@@ -112,4 +115,5 @@ export default {
   Conversation,
   Coupon,
   CouponRedemption,
+  ConnectorAuthSession,
 };

@@ -1,9 +1,16 @@
 import { Router } from 'express';
 import * as usersController from '../controllers/users.controller';
+import {
+  createConnectorAuthSession,
+  getConnectorAuthSessionContext,
+  getConnectorAuthSessionStatus,
+  handleConnectorAuthCallback,
+  verifyConnectorAuthSession,
+} from '../controllers/connectorAuth.controller';
 import { authenticateToken } from '../middleware/auth';
 import { writeLimiter } from '../middleware/rateLimiter';
 import { validate } from '../middleware/validation';
-import { body } from 'express-validator';
+import { body, param, query } from 'express-validator';
 
 const router = Router();
 
@@ -55,6 +62,85 @@ const refreshTokenValidation = [
     .isString()
     .notEmpty()
     .withMessage('Refresh token is required'),
+];
+
+const createSessionValidation = [
+  body('connectorId')
+    .isMongoId()
+    .withMessage('Valid connectorId is required'),
+  body('deviceId')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ min: 2, max: 120 })
+    .withMessage('deviceId must be between 2 and 120 characters'),
+  body('platform')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ min: 2, max: 50 })
+    .withMessage('platform must be between 2 and 50 characters'),
+  body('redirectUri')
+    .optional()
+    .isURL({ require_protocol: true })
+    .withMessage('redirectUri must be a valid URL'),
+];
+
+const callbackValidation = [
+  body('sessionId')
+    .isString()
+    .notEmpty()
+    .withMessage('sessionId is required'),
+  body('state')
+    .isString()
+    .notEmpty()
+    .withMessage('state is required'),
+  body('code')
+    .optional()
+    .isString()
+    .notEmpty()
+    .withMessage('code must be a non-empty string when provided'),
+  body('error')
+    .optional()
+    .isString()
+    .trim(),
+  body('errorDescription')
+    .optional()
+    .isString()
+    .trim(),
+  body('error_description')
+    .optional()
+    .isString()
+    .trim(),
+];
+
+const sessionStatusValidation = [
+  param('sessionId')
+    .isString()
+    .notEmpty()
+    .withMessage('sessionId is required'),
+];
+
+const sessionVerifyValidation = [
+  param('sessionId')
+    .isString()
+    .notEmpty()
+    .withMessage('sessionId is required'),
+  query('state')
+    .isString()
+    .notEmpty()
+    .withMessage('state is required'),
+];
+
+const sessionContextValidation = [
+  param('sessionId')
+    .isString()
+    .notEmpty()
+    .withMessage('sessionId is required'),
+  query('state')
+    .isString()
+    .notEmpty()
+    .withMessage('state is required'),
 ];
 
 const forgotPasswordValidation = [
@@ -118,6 +204,67 @@ router.post(
   refreshTokenValidation,
   validate,
   usersController.refreshSession
+);
+
+/**
+ * POST /api/auth/create-session
+ * Create a short-lived connector auth session
+ */
+router.post(
+  '/create-session',
+  writeLimiter,
+  authenticateToken,
+  createSessionValidation,
+  validate,
+  createConnectorAuthSession
+);
+
+/**
+ * GET /api/auth/session/:sessionId/verify
+ * Secure handshake for portal to verify session and get connector metadata
+ */
+router.get(
+  '/session/:sessionId/verify',
+  authenticateToken,
+  sessionVerifyValidation,
+  validate,
+  verifyConnectorAuthSession
+);
+
+/**
+ * GET /api/auth/session/:sessionId/context
+ * Fetch connector/auth/user context after session verification
+ */
+router.get(
+  '/session/:sessionId/context',
+  authenticateToken,
+  sessionContextValidation,
+  validate,
+  getConnectorAuthSessionContext
+);
+
+/**
+ * GET /api/auth/session/:sessionId
+ * Poll current auth session status
+ */
+router.get(
+  '/session/:sessionId',
+  authenticateToken,
+  sessionStatusValidation,
+  validate,
+  getConnectorAuthSessionStatus
+);
+
+/**
+ * POST /api/auth/callback
+ * Process OAuth callback from hosted portal
+ */
+router.post(
+  '/callback',
+  writeLimiter,
+  callbackValidation,
+  validate,
+  handleConnectorAuthCallback
 );
 
 /**

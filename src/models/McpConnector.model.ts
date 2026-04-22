@@ -47,6 +47,50 @@ export interface IMcpConnector extends Document {
       required?: boolean;
     }[];
   };
+  auth?: {
+    category:
+      | 'oauth2_authorization_code'
+      | 'oauth2_client_credentials'
+      | 'api_key'
+      | 'personal_access_token'
+      | 'basic_auth'
+      | 'none';
+    execution?: 'redirect' | 'form' | 'none' | 'device_code';
+    sessionRequired?: boolean;
+    oauth?: {
+      provider?: string;
+      flow?: 'authorization_code' | 'pkce' | 'device_code';
+      authorizationUrl?: string;
+      tokenUrl?: string;
+      scopes?: string[];
+      pkceRequired?: boolean;
+      clientIdEnvKey?: string;
+      clientSecretEnvKey?: string;
+      redirectUriEnvKey?: string;
+    };
+    tokenPlacement?: {
+      type: 'header' | 'query' | 'body';
+      key: string;
+      format?: string;
+    };
+    ui?: {
+      type: 'redirect' | 'form' | 'none' | 'device_code';
+      instructions?: string;
+    };
+    tokenLifecycle?: {
+      autoRefresh?: boolean;
+      expiryBufferSeconds?: number;
+    };
+  };
+  capabilities?: {
+    requiresAuth: boolean;
+    supportsBackgroundSync?: boolean;
+    supportsRealtime?: boolean;
+    authUsage?: {
+      type?: 'per-request' | 'session-based';
+      injection?: 'header' | 'query' | 'body';
+    };
+  };
   permissions: string[];
   isArchived: boolean;
   createdAt: Date;
@@ -167,6 +211,75 @@ const McpConnectorSchema: Schema = new Schema(
           required: { type: Boolean, default: true }
         }
       ]
+    },
+    auth: {
+      category: {
+        type: String,
+        enum: ['oauth2_authorization_code', 'oauth2_client_credentials', 'api_key', 'personal_access_token', 'basic_auth', 'none'],
+        default: null,
+      },
+      execution: {
+        type: String,
+        enum: ['redirect', 'form', 'none', 'device_code'],
+        default: null,
+      },
+      sessionRequired: {
+        type: Boolean,
+        default: null,
+      },
+      oauth: {
+        provider: { type: String, default: null },
+        flow: {
+          type: String,
+          enum: ['authorization_code', 'pkce', 'device_code'],
+          default: null,
+        },
+        authorizationUrl: { type: String, default: null },
+        tokenUrl: { type: String, default: null },
+        scopes: { type: [String], default: [] },
+        pkceRequired: { type: Boolean, default: null },
+        clientIdEnvKey: { type: String, default: null },
+        clientSecretEnvKey: { type: String, default: null },
+        redirectUriEnvKey: { type: String, default: null },
+      },
+      tokenPlacement: {
+        type: {
+          type: String,
+          enum: ['header', 'query', 'body'],
+          default: null,
+        },
+        key: { type: String, default: null },
+        format: { type: String, default: null },
+      },
+      ui: {
+        type: {
+          type: String,
+          enum: ['redirect', 'form', 'none', 'device_code'],
+          default: null,
+        },
+        instructions: { type: String, default: null },
+      },
+      tokenLifecycle: {
+        autoRefresh: { type: Boolean, default: null },
+        expiryBufferSeconds: { type: Number, default: null },
+      },
+    },
+    capabilities: {
+      requiresAuth: { type: Boolean, default: true },
+      supportsBackgroundSync: { type: Boolean, default: false },
+      supportsRealtime: { type: Boolean, default: false },
+      authUsage: {
+        type: {
+          type: String,
+          enum: ['per-request', 'session-based'],
+          default: null,
+        },
+        injection: {
+          type: String,
+          enum: ['header', 'query', 'body'],
+          default: null,
+        },
+      },
     },
     permissions: {
       type: [String],
