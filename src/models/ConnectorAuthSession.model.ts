@@ -11,6 +11,9 @@ export interface IConnectorAuthSession extends Document {
   status: 'created' | 'pending' | 'authenticated' | 'failed' | 'expired';
   state: string;
   nonce: string;
+  codeVerifier?: string;
+  codeChallenge?: string;
+  codeChallengeMethod?: 'S256';
   authUrl: string;
   portalOrigin: string;
   redirectUri: string;
@@ -86,6 +89,22 @@ const ConnectorAuthSessionSchema: Schema = new Schema(
     nonce: {
       type: String,
       required: true,
+    },
+    codeVerifier: {
+      type: String,
+      default: null,
+      select: false,
+    },
+    codeChallenge: {
+      type: String,
+      default: null,
+      select: false,
+    },
+    codeChallengeMethod: {
+      type: String,
+      enum: ['S256'],
+      default: null,
+      select: false,
     },
     authUrl: {
       type: String,

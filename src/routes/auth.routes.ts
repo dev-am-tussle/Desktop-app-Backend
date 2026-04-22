@@ -256,8 +256,17 @@ router.get(
 );
 
 /**
+ * GET /api/auth/handle/:provider
+ * Direct OAuth provider callback (GET)
+ */
+router.get(
+  '/handle/:provider',
+  handleConnectorAuthCallback
+);
+
+/**
  * POST /api/auth/callback
- * Process OAuth callback from hosted portal
+ * Hosted portal callback after OAuth completion (Legacy or custom)
  */
 router.post(
   '/callback',

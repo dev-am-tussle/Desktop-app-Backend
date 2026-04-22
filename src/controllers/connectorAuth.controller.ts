@@ -23,11 +23,11 @@ interface NormalizedAuthContract {
   oauth?: {
     provider?: string;
     flow?: 'authorization_code' | 'pkce' | 'device_code';
-      authorizationUrl?: string;
-      tokenUrl?: string;
+    authorizationUrl?: string;
+    tokenUrl?: string;
     scopes?: string[];
     pkceRequired?: boolean;
-      redirectUri?: string;
+    redirectUri?: string;
   };
   ui?: {
     type?: AuthExecutionType;
@@ -58,6 +58,56 @@ function buildAuthUrl(portalOrigin: string, connectorId: string, sessionId: stri
   const url = new URL(`/connectors/${connectorId}/auth`, portalOrigin);
   url.searchParams.set('sessionId', sessionId);
   url.searchParams.set('state', state);
+  return url.toString();
+}
+
+function buildRedirectUriUrl(_portalOrigin: string, _sessionId: string, _state: string): string {
+  // Direct backend callback URL
+  const backendUrl = process.env.BACKEND_URL || 'http://localhost:3000/api';
+  
+  // CRITICAL: Google does not allow query parameters in the redirect_uri.
+  // We must return a "clean" URL and rely on the 'state' parameter 
+  // or a temporary mapping to recover the sessionId.
+  return `${backendUrl.replace(/\/$/, '')}/auth/handle/google`;
+}
+
+function createPkcePair(): { codeVerifier: string; codeChallenge: string; codeChallengeMethod: 'S256' } {
+  const codeVerifier = crypto.randomBytes(32).toString('base64url');
+  const codeChallenge = crypto
+    .createHash('sha256')
+    .update(codeVerifier)
+    .digest('base64url');
+
+  return {
+    codeVerifier,
+    codeChallenge,
+    codeChallengeMethod: 'S256',
+  };
+}
+
+function buildGoogleAuthorizationUrl(params: {
+  clientId: string;
+  redirectUri: string;
+  state: string;
+  scopes: string[];
+  codeChallenge?: string;
+  codeChallengeMethod?: 'S256';
+}): string {
+  const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+
+  url.searchParams.set('client_id', params.clientId);
+  url.searchParams.set('redirect_uri', params.redirectUri);
+  url.searchParams.set('response_type', 'code');
+  url.searchParams.set('scope', params.scopes.join(' '));
+  url.searchParams.set('state', params.state);
+  url.searchParams.set('access_type', 'offline');
+  url.searchParams.set('prompt', 'consent');
+
+  if (params.codeChallenge && params.codeChallengeMethod) {
+    url.searchParams.set('code_challenge', params.codeChallenge);
+    url.searchParams.set('code_challenge_method', params.codeChallengeMethod);
+  }
+
   return url.toString();
 }
 
@@ -329,19 +379,35 @@ export const createConnectorAuthSession = async (req: Request, res: Response, ne
     const sessionId = crypto.randomUUID();
     const state = crypto.randomBytes(32).toString('hex');
     const nonce = crypto.randomBytes(32).toString('hex');
-    const finalRedirectUri = redirectUri || `${portalOrigin}/auth/connectors/callback`;
-    const authUrl = buildAuthUrl(portalOrigin, connector._id.toString(), sessionId, state);
+    const finalRedirectUri = redirectUri || buildRedirectUriUrl(portalOrigin, sessionId, state);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     const authContract = getNormalizedAuthContract(connector);
     const oauthProvider = getResolvedOAuthProvider(connector, authContract);
     const authMethod = authContract.category.startsWith('oauth2') ? 'oauth2' : 'manual';
+    const pkcePair = authContract.oauth?.pkceRequired ? createPkcePair() : null;
 
     if (authContract.category.startsWith('oauth2') && !oauthProvider) {
       throw new AppError('OAuth connector is missing provider configuration', 500, 'CONFIGURATION_ERROR');
     }
 
-    const authExecution = buildAuthExecution(authContract, authUrl, sessionId);
+    const providerAuthorizationUrl = authContract.category.startsWith('oauth2') && oauthProvider === 'google'
+      ? buildGoogleAuthorizationUrl({
+          clientId: process.env.GOOGLE_CLIENT_ID || '',
+          redirectUri: finalRedirectUri,
+          state,
+          scopes: authContract.oauth?.scopes || connector.permissions || [],
+          codeChallenge: pkcePair?.codeChallenge,
+          codeChallengeMethod: pkcePair?.codeChallengeMethod,
+        })
+      : null;
+
+    const portalAuthUrl = buildAuthUrl(portalOrigin, connector._id.toString(), sessionId, state);
+    const authExecution = buildAuthExecution(authContract, providerAuthorizationUrl || portalAuthUrl, sessionId);
     const isNoAuthFlow = authContract.category === 'none';
+
+    if (authContract.category.startsWith('oauth2') && oauthProvider === 'google' && !process.env.GOOGLE_CLIENT_ID) {
+      throw new AppError('GOOGLE_CLIENT_ID is not configured', 500, 'CONFIGURATION_ERROR');
+    }
 
     const session = await ConnectorAuthSession.create({
       sessionId,
@@ -351,10 +417,13 @@ export const createConnectorAuthSession = async (req: Request, res: Response, ne
       connectorTitle: connector.title,
       authMethod,
       provider: oauthProvider || undefined,
+      codeVerifier: pkcePair?.codeVerifier,
+      codeChallenge: pkcePair?.codeChallenge,
+      codeChallengeMethod: pkcePair?.codeChallengeMethod,
       status: isNoAuthFlow ? 'authenticated' : 'created',
       state,
       nonce,
-      authUrl,
+      authUrl: providerAuthorizationUrl || portalAuthUrl,
       portalOrigin,
       redirectUri: finalRedirectUri,
       deviceId: deviceId || null,
@@ -370,6 +439,8 @@ export const createConnectorAuthSession = async (req: Request, res: Response, ne
         state: session.state,
         nonce: session.nonce,
         authUrl: session.authUrl,
+        portalAuthUrl,
+        providerAuthUrl: providerAuthorizationUrl,
         expiresAt: session.expiresAt.toISOString(),
         authExecution,
         redirectUri: session.redirectUri,
@@ -387,6 +458,7 @@ export const createConnectorAuthSession = async (req: Request, res: Response, ne
         provider: session.provider || oauthProvider,
         authCategory: authContract.category,
         tokenLifecycle: authContract.tokenLifecycle,
+        pkce: pkcePair ? { codeChallengeMethod: pkcePair.codeChallengeMethod } : undefined,
       },
     });
   } catch (error) {
@@ -454,6 +526,8 @@ export const verifyConnectorAuthSession = async (req: Request, res: Response, ne
         expiresAt: session.expiresAt,
         isExpired: false,
         contextEndpoint,
+        portalAuthUrl: buildAuthUrl(getPortalOrigin(), String(session.connectorId), session.sessionId, session.state),
+        providerAuthUrl: session.authUrl,
       }
     });
 
@@ -543,6 +617,8 @@ export const getConnectorAuthSessionContext = async (req: Request, res: Response
         },
         authContract,
         authExecution,
+        portalAuthUrl: buildAuthUrl(getPortalOrigin(), String(connector._id), session.sessionId, session.state),
+        providerAuthUrl: session.authUrl,
         redirectUri: session.redirectUri,
         capabilities: connector.capabilities || {
           requiresAuth: authContract.category !== 'none',
@@ -648,20 +724,39 @@ export const getConnectorAuthSessionStatus = async (req: Request, res: Response,
 };
 
 /**
+ * GET /api/auth/handle/:provider
  * POST /api/auth/callback
- * Hosted portal callback after OAuth completion
+ * Direct callback handler from OAuth provider or Proxy redirect
  */
 export const handleConnectorAuthCallback = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const {
+    // Merge query (GET) and body (POST) for flexibility
+    const params = { ...req.query, ...req.body, ...req.params };
+    
+    // RAW LOGGING FOR TESTING (AS REQUESTED)
+    console.log('--- RAW OAUTH CALLBACK DATA START ---');
+    console.log(JSON.stringify(params));
+    console.log('--- RAW OAUTH CALLBACK DATA END ---');
+
+    let {
       sessionId,
       state,
       code,
       error,
       errorDescription,
       error_description,
+      provider: routeProvider,
       ...providerPayload
-    } = req.body;
+    } = params;
+
+    // If sessionId is missing (e.g. direct redirect from Google), 
+    // try to find the session using the state parameter.
+    if (!sessionId && state) {
+      const stateMappedSession = await ConnectorAuthSession.findOne({ state });
+      if (stateMappedSession) {
+        sessionId = stateMappedSession.sessionId;
+      }
+    }
 
     const normalizedErrorDescription = errorDescription || error_description;
 
@@ -743,18 +838,54 @@ export const handleConnectorAuthCallback = async (req: Request, res: Response, n
     };
     await session.save();
 
-    res.status(200).json({
-      status: 'success',
-      message: 'Connector auth callback processed',
-      data: {
-        sessionId: session.sessionId,
-        status: session.status,
-        connectorId: session.connectorId,
-        provider: session.provider,
-        authMethod: session.authMethod,
-        redirectUri: session.redirectUri,
-      },
-    });
+    // Responsive HTML for Browser -> App Handshake or Success page
+    const renderSuccessHtml = (data: any) => `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Authentication Successful</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #0f172a; color: white; text-align: center; }
+            .card { background: #1e293b; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); max-width: 400px; }
+            h1 { color: #10b981; margin-bottom: 1rem; }
+            p { color: #94a3b8; line-height: 1.5; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h1>Success!</h1>
+            <p>Your ${data.provider} account has been connected.</p>
+            <p>You can close this window and return to the app.</p>
+            <script>
+              // Optional: Post message to opener if it's a popup
+              if (window.opener) {
+                window.opener.postMessage({ type: 'AUTH_SUCCESS', sessionId: '${data.sessionId}' }, '*');
+              }
+            </script>
+          </div>
+        </body>
+      </html>
+    `;
+
+    if (req.method === 'GET') {
+      res.status(200).send(renderSuccessHtml({ 
+        provider: session.provider, 
+        sessionId: session.sessionId 
+      }));
+    } else {
+      res.status(200).json({
+        status: 'success',
+        message: 'Connector auth callback processed',
+        data: {
+          sessionId: session.sessionId,
+          status: session.status,
+          connectorId: session.connectorId,
+          provider: session.provider,
+          authMethod: session.authMethod,
+          redirectUri: session.redirectUri,
+        },
+      });
+    }
   } catch (error) {
     next(error);
   }
