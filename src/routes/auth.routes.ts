@@ -3,6 +3,7 @@ import * as usersController from '../controllers/users.controller';
 import {
   createConnectorAuthSession,
   getConnectorAuthSessionContext,
+  getConnectorAuthSessionCredentials,
   getConnectorAuthSessionStatus,
   handleConnectorAuthCallback,
   verifyConnectorAuthSession,
@@ -253,6 +254,18 @@ router.get(
   sessionStatusValidation,
   validate,
   getConnectorAuthSessionStatus
+);
+
+/**
+ * GET /api/auth/session/:sessionId/credentials
+ * Retrieve encrypted credentials for authenticated session
+ */
+router.get(
+  '/session/:sessionId/credentials',
+  authenticateToken,
+  sessionStatusValidation,
+  validate,
+  getConnectorAuthSessionCredentials
 );
 
 /**

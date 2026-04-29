@@ -41,6 +41,14 @@ export const authenticateToken = (req: Request, res: Response, next: NextFunctio
     if (decoded.type === 'admin') {
       console.log('✅ Admin Token detected in User Auth');
       req.admin = decoded;
+      // Keep role-based middlewares working by mapping admin token to req.user shape.
+      req.user = {
+        userId: decoded.adminId,
+        role: decoded.role || 'admin',
+        email: decoded.email,
+        iat: decoded.iat,
+        exp: decoded.exp,
+      };
       return next();
     }
 
