@@ -36,6 +36,8 @@ import NotificationVersion from './NotificationVersion.model';
 import McpConnector from './McpConnector.model';
 
 import ConnectorAuthSession from './ConnectorAuthSession.model';
+import McpCredentials from './McpCredentials.model';
+
 // Export all models
 export {
   User,
@@ -69,6 +71,8 @@ export {
   NotificationVersion,
   McpConnector,
   ConnectorAuthSession,
+  // MCP Credentials
+  McpCredentials,
 };
 
 // Export types
@@ -100,6 +104,9 @@ export type { ICouponRedemption } from './CouponRedemption.model';
 // FX Rates Management Types
 export type { IFXRate } from './FXRate.model';
 
+// MCP Credentials Types
+export type { IMcpCredentials } from './McpCredentials.model';
+
 // Default export - all models as object
 export default {
   User,
@@ -116,4 +123,5 @@ export default {
   Coupon,
   CouponRedemption,
   ConnectorAuthSession,
+  McpCredentials,
 };

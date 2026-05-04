@@ -165,7 +165,6 @@ const ConnectorAuthSessionSchema: Schema = new Schema(
     expiresAt: {
       type: Date,
       required: true,
-      index: true,
     },
     lastError: {
       code: {
