@@ -37,7 +37,7 @@ import McpConnector from './McpConnector.model';
 
 import ConnectorAuthSession from './ConnectorAuthSession.model';
 import McpCredentials from './McpCredentials.model';
-
+import OAuthAccount from './OAuthAccount.model';
 // Export all models
 export {
   User,
@@ -73,6 +73,8 @@ export {
   ConnectorAuthSession,
   // MCP Credentials
   McpCredentials,
+  // OAuth of Accounts
+  OAuthAccount,
 };
 
 // Export types
@@ -106,6 +108,9 @@ export type { IFXRate } from './FXRate.model';
 
 // MCP Credentials Types
 export type { IMcpCredentials } from './McpCredentials.model';
+
+// OAuth Account Types
+export type { IOAuthAccount } from './OAuthAccount.model';
 
 // Default export - all models as object
 export default {

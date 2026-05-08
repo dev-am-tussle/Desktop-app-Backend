@@ -20,6 +20,12 @@ export interface IUser extends Document {
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
 
+  // Authentication Identity
+  authProvider?: {
+    provider_name: 'google' | 'microsoft' | 'email';
+    verified: boolean;
+  };
+
   // Offline Entitlement Cache
   last_entitlement_sync?: Date;
 
@@ -147,6 +153,17 @@ const UserSchema: Schema<IUser> = new Schema(
       type: String,
       default: null,
       index: true,
+    },
+    authProvider: {
+      provider_name: {
+        type: String,
+        enum: ['google', 'microsoft', 'email'],
+        default: 'email',
+      },
+      verified: {
+        type: Boolean,
+        default: false,
+      },
     },
     // Legal Consent
     consent: {
