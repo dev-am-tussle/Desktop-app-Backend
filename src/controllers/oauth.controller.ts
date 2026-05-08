@@ -132,7 +132,7 @@ function renderAuthSuccessPage(redirectUrl: string, provider: string): string {
                     href="${redirectUrl}"
                     id="open-app"
                 >
-                    Open Sovereign AI (4s)
+                    Open Sovereign AI
                 </a>
 
                 <button
