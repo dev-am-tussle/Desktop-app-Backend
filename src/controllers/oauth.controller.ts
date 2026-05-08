@@ -264,7 +264,7 @@ export class OAuthController {
     // Microsoft callback handler (Phase 2)
     static async microsoftCallback(req: Request, res: Response): Promise<void> {
         try {
-            const { code, error } = req.query;
+            const { code, error, state } = req.query;
 
             if (error) {
                 console.error('Microsoft OAuth error:', error);
@@ -272,12 +272,12 @@ export class OAuthController {
                 return;
             }
 
-            if (!code) {
-                res.status(400).send('Missing authorization code');
+            if (!code || !state) {
+                res.status(400).send('Missing authorization code or state parameter');
                 return;
             }
 
-            const { user, registrationResponse } = await OAuthService.handleMicrosoftCallback(code as string);
+            const { user, registrationResponse } = await OAuthService.handleMicrosoftCallback(code as string, state as string);
 
             const sessionToken = registrationResponse.data.authentication.sessionToken;
             const refreshToken = registrationResponse.data.authentication.refreshToken;
