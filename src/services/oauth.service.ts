@@ -1,5 +1,4 @@
 import axios from 'axios';
-import crypto from 'crypto';
 import OAuthAccount from '../models/OAuthAccount.model';
 import User from '../models/User.model';
 import { verifyToken } from '../utils/jwt';
@@ -31,15 +30,15 @@ const MICROSOFT_CONFIG = {
     // 'common' allows personal + work accounts; set a tenant GUID for single-tenant apps.
 };
 
-// PKCE store: Map<state, {verifier, expiresAt}>
-const pkceStore = new Map<string, { verifier: string; expiresAt: number }>();
+// Microsoft OAuth state store for server-side flow validation
+const microsoftAuthStateStore = new Map<string, { expiresAt: number }>();
 
-// Clean up expired PKCE entries periodically (every 5 minutes)
+// Clean up expired Microsoft OAuth state entries periodically (every 5 minutes)
 setInterval(() => {
     const now = Date.now();
-    for (const [state, data] of pkceStore.entries()) {
+    for (const [state, data] of microsoftAuthStateStore.entries()) {
         if (data.expiresAt < now) {
-            pkceStore.delete(state);
+            microsoftAuthStateStore.delete(state);
         }
     }
 }, 5 * 60 * 1000);
@@ -61,15 +60,12 @@ export class OAuthService {
             return `${GOOGLE_CONFIG.authUrl}?${params.toString()}`;
         }
 
-        // ✅ Add Microsoft provider with PKCE
+        // Microsoft Web flow
         if (provider === 'microsoft') {
             const state = this.generateState();
-            const verifier = this.generateCodeVerifier();
-            const codeChallenge = this.generateCodeChallenge(verifier);
 
-            // Store verifier in memory with 10-minute expiry
-            pkceStore.set(state, {
-                verifier,
+            // Store state in memory with 10-minute expiry for the server-side Web flow
+            microsoftAuthStateStore.set(state, {
                 expiresAt: Date.now() + 10 * 60 * 1000,
             });
 
@@ -80,8 +76,6 @@ export class OAuthService {
                 scope: MICROSOFT_CONFIG.scope,
                 response_mode: 'query',
                 state,
-                code_challenge: codeChallenge,
-                code_challenge_method: 'S256',
             });
             return `${MICROSOFT_CONFIG.authUrl}?${params.toString()}`;
         }
@@ -163,37 +157,33 @@ export class OAuthService {
 
     // Step 2B : Handle callback and exchange code for tokens
     static async handleMicrosoftCallback(code: string, state: string): Promise<{ user: any; registrationResponse: any }> {
-        // Retrieve PKCE verifier from store
-        const pkceData = pkceStore.get(state);
-        if (!pkceData) {
-            throw new Error('Invalid or expired PKCE state. Please try logging in again.');
+        // Validate OAuth state for the server-side Web flow
+        const stateData = microsoftAuthStateStore.get(state);
+        if (!stateData) {
+            throw new Error('Invalid or expired Microsoft OAuth state. Please try logging in again.');
         }
 
-        // Check if PKCE is expired (shouldn't happen due to cleanup, but just in case)
-        if (pkceData.expiresAt < Date.now()) {
-            pkceStore.delete(state);
-            throw new Error('PKCE state expired. Please try logging in again.');
+        // Check if state is expired (shouldn't happen due to cleanup, but just in case)
+        if (stateData.expiresAt < Date.now()) {
+            microsoftAuthStateStore.delete(state);
+            throw new Error('Microsoft OAuth state expired. Please try logging in again.');
         }
 
-        const { verifier } = pkceData;
+        console.log('[Microsoft OAuth] Exchanging code for tokens with Web client secret flow');
 
-        console.log('[Microsoft OAuth] Exchanging code for tokens with PKCE (public client - no secret)');
-
-        // ✅ CRITICAL FIX: Remove client_secret for public client (Electron)
-        // Public clients using PKCE don't need client_secret - PKCE provides the security
+        // Web/confidential client flow: client_secret is required
         const tokenParams = new URLSearchParams();
         tokenParams.append('code', code);
         tokenParams.append('client_id', MICROSOFT_CONFIG.clientId);
-        // ❌ NOT SENT: client_secret (this is the fix for AADSTS700025)
+        tokenParams.append('client_secret', MICROSOFT_CONFIG.clientSecret);
         tokenParams.append('redirect_uri', MICROSOFT_CONFIG.redirectUri);
         tokenParams.append('grant_type', 'authorization_code');
-        tokenParams.append('code_verifier', verifier);
 
-        console.log('[Microsoft OAuth] Token params (without secret):', {
+        console.log('[Microsoft OAuth] Token params (web client):', {
             client_id: MICROSOFT_CONFIG.clientId?.substring(0, 8),
             redirect_uri: MICROSOFT_CONFIG.redirectUri,
             grant_type: 'authorization_code',
-            has_code_verifier: !!verifier
+            has_client_secret: !!MICROSOFT_CONFIG.clientSecret,
         });
 
         const tokenResponse = await axios.post(MICROSOFT_CONFIG.tokenUrl, tokenParams, {
@@ -204,8 +194,8 @@ export class OAuthService {
 
         console.log('[Microsoft OAuth] Token exchange successful');
 
-        // Clean up the used PKCE state
-        pkceStore.delete(state);
+        // Clean up the used OAuth state
+        microsoftAuthStateStore.delete(state);
 
         const { access_token, refresh_token, expires_in } = tokenResponse.data;
 
@@ -319,19 +309,6 @@ export class OAuthService {
             name: user.name,
             provider: 'google',
         };
-    }
-
-    // PKCE: Generate a random code verifier (43-128 characters)
-    private static generateCodeVerifier(): string {
-        return crypto.randomBytes(32).toString('base64url');
-    }
-
-    // PKCE: Generate code challenge from verifier (SHA256 hash)
-    private static generateCodeChallenge(verifier: string): string {
-        return crypto
-            .createHash('sha256')
-            .update(verifier)
-            .digest('base64url');
     }
 
     private static generateState(): string {
