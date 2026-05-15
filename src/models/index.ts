@@ -38,6 +38,7 @@ import McpConnector from './McpConnector.model';
 import ConnectorAuthSession from './ConnectorAuthSession.model';
 import McpCredentials from './McpCredentials.model';
 import OAuthAccount from './OAuthAccount.model';
+import EmailVerification from './EmailVerification.model';
 // Export all models
 export {
   User,
@@ -75,6 +76,8 @@ export {
   McpCredentials,
   // OAuth of Accounts
   OAuthAccount,
+  // Email Verification (OTP)
+  EmailVerification,
 };
 
 // Export types
@@ -94,6 +97,7 @@ export type { ISupport } from './Support.model';
 export type { IRecommendedModel } from './RecommendedModel.model';
 export type { INotification } from './Notification.model';
 export type { INotificationRecipient } from './NotificationRecipient.model';
+export type { IEmailVerification } from './EmailVerification.model';
 
 // Entitlement System Types
 export type { IEntitlementDefinition } from './EntitlementDefinition.model';
@@ -129,4 +133,5 @@ export default {
   CouponRedemption,
   ConnectorAuthSession,
   McpCredentials,
+  EmailVerification,
 };
