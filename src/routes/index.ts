@@ -26,6 +26,9 @@ import mcpMarketplaceRoutes from './mcpMarketplace.routes';
 import mcpCredentialsRoutes from './mcpCredentials.routes';
 import oauthRoutes from './oauth.routes';
 import otpRoutes from './otp.routes';
+import referralRoutes from './Referral.routes';
+
+
 // Note: webhookRoutes mounted separately in server.ts before JSON parser
 
 const router = Router();
@@ -66,5 +69,6 @@ router.use('/entitlements', entitlementsRoutes); // Entitlements management rout
 router.use('/coupons', couponsRoutes); // Coupon redemption routes
 router.use('/oauth', oauthRoutes); // OAuth routes (Google, Microsoft, etc.)
 router.use('/otp', otpRoutes); // OTP email verification routes
+router.use('/referral', referralRoutes); // OTP email verification routes
 
 export default router;

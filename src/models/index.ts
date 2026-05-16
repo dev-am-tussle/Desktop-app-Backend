@@ -39,6 +39,8 @@ import ConnectorAuthSession from './ConnectorAuthSession.model';
 import McpCredentials from './McpCredentials.model';
 import OAuthAccount from './OAuthAccount.model';
 import EmailVerification from './EmailVerification.model';
+import Referral from './Referral.model';
+
 // Export all models
 export {
   User,
@@ -78,6 +80,7 @@ export {
   OAuthAccount,
   // Email Verification (OTP)
   EmailVerification,
+  Referral,
 };
 
 // Export types
@@ -98,6 +101,7 @@ export type { IRecommendedModel } from './RecommendedModel.model';
 export type { INotification } from './Notification.model';
 export type { INotificationRecipient } from './NotificationRecipient.model';
 export type { IEmailVerification } from './EmailVerification.model';
+export type { IReferral } from './Referral.model';
 
 // Entitlement System Types
 export type { IEntitlementDefinition } from './EntitlementDefinition.model';
